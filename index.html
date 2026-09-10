@@ -10,11 +10,12 @@
 <style>
 :root{
   --bg:#f6f7f9; --card:#fff; --line:#e3e6ea; --text:#1c2024; --muted:#6b7280;
-  --accent:#2563eb; --warn:#b45309; --danger:#dc2626; --ok:#15803d; --mine:#fff7cc;
+  --accent:#2563eb; --accent2:#7c3aed; --warn:#b45309; --danger:#dc2626; --ok:#15803d; --mine:#fff7cc;
 }
 *{box-sizing:border-box}
 body{margin:0;font-family:system-ui,-apple-system,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
      background:var(--bg);color:var(--text);font-size:15px;line-height:1.55}
+body.night{--accent:var(--accent2)}
 header{background:var(--card);border-bottom:1px solid var(--line);padding:10px 16px;
        position:sticky;top:0;z-index:20;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
 h1{font-size:17px;margin:0;font-weight:650;white-space:nowrap}
@@ -22,6 +23,9 @@ h1{font-size:17px;margin:0;font-weight:650;white-space:nowrap}
 .pill{font-size:12px;padding:3px 9px;border-radius:99px;background:#eef1f4;color:var(--muted)}
 .pill.on{background:#dcfce7;color:var(--ok)}
 .pill.off{background:#fee2e2;color:var(--danger)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff}
+.seg button{border:0;background:none;padding:8px 18px;cursor:pointer;font-size:14px;color:var(--muted);font-weight:600}
+.seg button.on{background:var(--accent);color:#fff}
 nav{display:flex;gap:4px;padding:8px 16px 0;flex-wrap:wrap}
 nav button{border:1px solid transparent;background:none;padding:7px 14px;border-radius:8px 8px 0 0;
            cursor:pointer;font-size:14px;color:var(--muted)}
@@ -43,15 +47,14 @@ th,td{border:1px solid var(--line);padding:5px 7px;text-align:left;vertical-alig
 th{background:#f2f4f7;font-weight:600;font-size:13px;position:sticky;top:0}
 td.slot{padding:3px}
 td.slot select{width:100%;border:0;background:transparent;padding:4px}
-td.slot.filled{background:#f3f8ff}
+td.slot.filled{background:#f5f7fb}
 td.slot.mine{background:var(--mine)}
 td.slot.empty select{color:#b91c1c}
-td.na{background:#f7f7f8;color:#bbb;text-align:center;font-size:12px}
 .lock{border:0;background:none;cursor:pointer;font-size:12px;opacity:.3;padding:0 2px}
 .lock.on{opacity:1}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px}
 .dow{display:inline-flex;gap:2px}
-.dow label{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;
+.dow label{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;
            border:1px solid var(--line);border-radius:6px;cursor:pointer;font-size:12px;background:#fff}
 .dow input{display:none}
 .dow label:has(input:checked){background:var(--accent);color:#fff;border-color:var(--accent)}
@@ -66,13 +69,18 @@ td.na{background:#f7f7f8;color:#bbb;text-align:center;font-size:12px}
 ol.steps{padding-left:20px;font-size:13px;color:#444;margin:0 0 10px}
 ol.steps li{margin-bottom:5px}
 code{background:#eef1f4;padding:1px 5px;border-radius:4px;font-size:12px}
+.tag{display:inline-block;margin:3px 6px 3px 0;background:#eef1f4;padding:3px 8px;border-radius:6px;font-size:13px}
 @media(max-width:640px){ main{padding:0 8px 60px} header{padding:8px} nav{padding:6px 8px 0} }
 </style>
 </head>
 <body>
 
 <header>
-  <h1>🗓️ 家長值班排班系統</h1>
+  <h1>🗓️ 家長值班</h1>
+  <span class="seg" id="perSeg">
+    <button data-p="p9" class="on">第九節</button>
+    <button data-p="night">晚自習</button>
+  </span>
   <span id="conn" class="pill">未連線</span>
   <span class="grow"></span>
   <label class="f" style="margin:0">
@@ -107,9 +115,7 @@ code{background:#eef1f4;padding:1px 5px;border-radius:4px;font-size:12px}
     <button class="btn sec" id="btnExport">匯出 Excel</button>
     <button class="btn sec" id="btnClear">清空未鎖定</button>
   </div>
-  <div class="muted" style="margin-bottom:8px">
-    點下拉選單即可手動指定家長；🔒 表示鎖定，自動排班不會更動。只有「小孩該星期幾有到課」的家長會出現在選項中。
-  </div>
+  <div class="muted" style="margin-bottom:8px" id="boardHint"></div>
   <div class="wrap"><table id="boardTbl"></table></div>
 </section>
 
@@ -122,50 +128,53 @@ code{background:#eef1f4;padding:1px 5px;border-radius:4px;font-size:12px}
       匯入 Excel<input type="file" id="fileImp" accept=".xlsx,.xls,.csv" hidden>
     </label>
     <button class="btn sec" id="btnExportRoster">匯出名單</button>
+    <button class="btn sec" id="btnCopyRoster">從另一個時段複製名單</button>
     <span class="grow"></span>
     <span class="muted" id="stuCount"></span>
   </div>
-  <div class="hint">
-    「到課星期」= 小孩固定哪幾天會留下來上第九節／晚自習。勾選後，自動排班只會把該家長排在那些日子。
-  </div>
+  <div class="hint" id="rosterHint"></div>
   <div class="wrap"><table id="rosterTbl"></table></div>
 </section>
 
 <!-- ================= 統計 ================= -->
 <section id="tab-stats" hidden>
-  <div class="muted" style="margin-bottom:10px">
-    「應排班數」＝ 依各家庭小孩可值班的時段數按比例分配；「實排班數」＝ 目前班表實際排到的次數。
-  </div>
+  <div class="muted" style="margin-bottom:10px" id="statsHint"></div>
   <div class="wrap"><table id="statsTbl"></table></div>
 </section>
 
 <!-- ================= 設定 ================= -->
 <section id="tab-setup" hidden>
   <div class="card">
-    <h3>學期與時段</h3>
+    <h3>學期日期（兩個時段共用）</h3>
     <div class="row">
       <label class="f"><span>開始日期</span><input type="date" id="cfgStart"></label>
       <label class="f"><span>結束日期</span><input type="date" id="cfgEnd"></label>
     </div>
+  </div>
+
+  <div class="card">
+    <h3 id="cfgPerTitle">時段設定</h3>
     <div class="row">
-      <label class="f"><span>第九節 每天需要</span><input type="number" id="cfgN9" min="0" max="5" style="width:70px"></label>
-      <label class="f"><span>第九節 開始</span><input type="time" id="cfgT9s"></label>
-      <label class="f"><span>第九節 結束</span><input type="time" id="cfgT9e"></label>
+      <label class="f"><span>每天需要幾位家長</span><input type="number" id="cfgN" min="0" max="5" style="width:80px"></label>
+      <label class="f"><span>開始時間</span><input type="time" id="cfgTs"></label>
+      <label class="f"><span>結束時間</span><input type="time" id="cfgTe"></label>
     </div>
-    <div class="row">
-      <label class="f"><span>晚自習 每天需要</span><input type="number" id="cfgNn" min="0" max="5" style="width:70px"></label>
-      <label class="f"><span>晚自習 開始</span><input type="time" id="cfgTns"></label>
-      <label class="f"><span>晚自習 結束</span><input type="time" id="cfgTne"></label>
-    </div>
-    <div class="muted" style="margin-bottom:8px">時間只影響匯出到日曆的活動長度，不影響排班。</div>
+    <div class="muted" style="margin-bottom:8px">時間只影響匯出到日曆的活動長度，不影響排班。「每天需要」設為 0 等於停用這個時段。</div>
     <button class="btn" id="btnSaveCfg">儲存設定</button>
   </div>
 
   <div class="card">
-    <h3>不排班的日期（假日／段考／不上第九節的日子）</h3>
+    <h3>不排班的日期（假日／段考／不上課的日子）</h3>
     <div class="row">
       <label class="f"><span>日期</span><input type="date" id="holD"></label>
       <label class="f"><span>說明</span><input type="text" id="holNote" placeholder="例：中秋節"></label>
+      <label class="f"><span>套用範圍</span>
+        <select id="holScope">
+          <option value="all">兩個時段都停</option>
+          <option value="p9">只有第九節停</option>
+          <option value="night">只有晚自習停</option>
+        </select>
+      </label>
       <button class="btn sec" id="btnAddHol">加入</button>
     </div>
     <div id="holList" class="muted"></div>
@@ -174,19 +183,17 @@ code{background:#eef1f4;padding:1px 5px;border-radius:4px;font-size:12px}
   <div class="card">
     <h3>連線設定（Firebase，多人即時共用）</h3>
     <ol class="steps">
-      <li>到 <a href="https://console.firebase.google.com" target="_blank" rel="noopener">Firebase 主控台</a> 用你的 Google 帳號新增專案（Google Analytics 可以關掉）。</li>
-      <li>左側「建構 → Firestore Database」→ 建立資料庫 → 位置選 <code>asia-east1</code> → 先選「以測試模式啟動」。</li>
-      <li>「專案設定 → 一般 → 您的應用程式」→ 點網頁圖示 <code>&lt;/&gt;</code> 註冊應用程式，會出現一段 <code>firebaseConfig = { ... }</code>。</li>
-      <li>把那整段貼到下面的框框，按「儲存並連線」。</li>
-      <li>回到「Firestore Database → 規則」，貼上 repo 裡 <code>firestore.rules</code> 的內容並發布（測試模式 30 天後會失效）。</li>
+      <li>到 <a href="https://console.firebase.google.com" target="_blank" rel="noopener">Firebase 主控台</a> 用你的 Google 帳號新增專案。</li>
+      <li>左側「資料庫和儲存空間 → Firestore」→ 建立資料庫 → 位置選 <code>asia-east1</code> → 測試模式。</li>
+      <li>齒輪「專案設定 → 一般」→ 最下面「您的應用程式」→ 點 <code>&lt;/&gt;</code> 註冊網頁應用程式，會出現 <code>firebaseConfig = { ... }</code>。</li>
+      <li>把那整段貼到下面，按「儲存並連線」。</li>
+      <li>回到 Firestore 的「規則」分頁，貼上 repo 裡 <code>firestore.rules</code> 的內容並發布。</li>
     </ol>
     <textarea id="cfgFb" rows="9" placeholder='const firebaseConfig = {
   apiKey: "AIza...",
   authDomain: "your-project.firebaseapp.com",
   projectId: "your-project",
-  storageBucket: "your-project.appspot.com",
-  messagingSenderId: "1234567890",
-  appId: "1:1234:web:abcd"
+  ...
 };'></textarea>
     <div class="row" style="margin-top:10px">
       <button class="btn" id="btnConnect">儲存並連線</button>
@@ -212,22 +219,24 @@ code{background:#eef1f4;padding:1px 5px;border-radius:4px;font-size:12px}
 const BUILTIN_CFG = null;
 
 const DOWN = ['日','一','二','三','四','五','六'];
-const PERIODS = [
-  {k:'p9',    name:'第九節'},
-  {k:'night', name:'晚自習'}
-];
-const LS = 'parentDuty.v2';
+const PERIODS = { p9:'第九節', night:'晚自習' };
+const PKEYS = ['p9','night'];
+const LS = 'parentDuty.v3';
+const LS_OLD = 'parentDuty.v2';
 const LS_CFG = 'parentDuty.fbcfg';
 
 let S = {
-  settings:{ startDate:'', endDate:'', perSlot:{p9:1, night:1},
+  settings:{ startDate:'', endDate:'',
+             perSlot:{p9:1, night:1},
              time:{p9:['16:10','17:00'], night:['18:30','20:30']} },
-  students:[],
-  holidays:[]
+  rosters:{ p9:[], night:[] },
+  holidays:[]                      // {d, note, scope:'all'|'p9'|'night'}
 };
-let SHIFTS = {};              // "2026-09-11|p9|0" -> {studentId, locked}
-let db = null, mode = 'local', me = '';
-let suppress = false;         // 自己寫入時避免重複重繪
+let SHIFTS = {};                   // "2026-09-11|p9|0" -> {studentId, locked}
+let db = null, mode = 'local';
+let CP = 'p9';                     // 目前檢視的時段
+let ME = {p9:'', night:''};        // 各時段各自記「我是誰」
+let suppress = false;
 
 /* ---------- 小工具 ---------- */
 const $ = s => document.querySelector(s);
@@ -235,6 +244,7 @@ const esc = s => String(s??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;'
 const key = (d,p,i) => `${d}|${p}|${i}`;
 const docId = (d,p,i) => `${d}_${p}_${i}`;
 const uid = () => 'S'+Math.random().toString(36).slice(2,9);
+const other = p => p==='p9' ? 'night' : 'p9';
 function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'),2400); }
 function parseISO(s){ const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); }
 function toISO(dt){ return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`; }
@@ -244,35 +254,54 @@ function dateRange(a,b){
   while(cur<=end && guard++<2000){ out.push(toISO(cur)); cur.setDate(cur.getDate()+1); }
   return out;
 }
-function stuById(id){ return S.students.find(s=>s.id===id); }
+const roster = p => (S.rosters[p] ||= []);
+function stuById(p,id){ return roster(p).find(s=>s.id===id); }
 function labelOf(s){ return s ? (s.parent || s.name) + (s.parent && s.name ? `（${s.name}家長）` : '') : ''; }
-function normSettings(x){
-  const s = x || {};
-  return { startDate:s.startDate||'', endDate:s.endDate||'',
-           perSlot:{p9:Number(s.perSlot?.p9 ?? 1), night:Number(s.perSlot?.night ?? 1)},
-           time:{ p9: s.time?.p9 || ['16:10','17:00'], night: s.time?.night || ['18:30','20:30'] } };
-}
 
-/* ---------- 排班核心 ---------- */
-function holidaySet(){ return new Set(S.holidays.map(h=>h.d)); }
-
-function buildSlots(){
-  const out=[], hol=holidaySet();
-  for(const d of dateRange(S.settings.startDate, S.settings.endDate)){
-    const dow = parseISO(d).getDay();
-    if(dow===0 || dow===6) continue;
-    if(hol.has(d)) continue;
-    for(const P of PERIODS){
-      const n = Number(S.settings.perSlot[P.k]||0);
-      if(n<=0) continue;
-      const elig = S.students.filter(s => (s.attend?.[P.k]||[]).includes(dow)).map(s=>s.id);
-      if(!elig.length) continue;
-      for(let i=0;i<n;i++) out.push({d, period:P.k, idx:i, dow, elig});
-    }
+function normalize(x){
+  const s = x?.settings || {};
+  const out = {
+    settings:{
+      startDate:s.startDate||'', endDate:s.endDate||'',
+      perSlot:{p9:Number(s.perSlot?.p9 ?? 1), night:Number(s.perSlot?.night ?? 1)},
+      time:{ p9:s.time?.p9 || ['16:10','17:00'], night:s.time?.night || ['18:30','20:30'] }
+    },
+    rosters:{ p9:[], night:[] },
+    holidays:(x?.holidays||[]).map(h=>({d:h.d, note:h.note||'', scope:h.scope||'all'}))
+  };
+  if(x?.rosters){
+    PKEYS.forEach(p=> out.rosters[p] = (x.rosters[p]||[]).map(r=>({
+      id:r.id||uid(), name:r.name||'', parent:r.parent||'', contact:r.contact||'',
+      days:(r.days||[]).map(Number).filter(n=>n>=1&&n<=5).sort()
+    })));
+  } else if(x?.students){          // 從舊版 (v2) 的單一名單拆成兩份
+    PKEYS.forEach(p=>{
+      out.rosters[p] = x.students
+        .filter(st=>(st.attend?.[p]||[]).length)
+        .map(st=>({id:st.id||uid(), name:st.name||'', parent:st.parent||'', contact:st.contact||'',
+                   days:[...(st.attend[p])].sort()}));
+    });
   }
   return out;
 }
 
+/* ---------- 排班核心（單一時段） ---------- */
+function isHoliday(d, p){
+  return S.holidays.some(h=>h.d===d && (h.scope==='all' || h.scope===p));
+}
+function buildSlots(p){
+  const out=[], n=Number(S.settings.perSlot[p]||0);
+  if(n<=0) return out;
+  for(const d of dateRange(S.settings.startDate, S.settings.endDate)){
+    const dow = parseISO(d).getDay();
+    if(dow===0 || dow===6) continue;
+    if(isHoliday(d,p)) continue;
+    const elig = roster(p).filter(s=>s.days.includes(dow)).map(s=>s.id);
+    if(!elig.length) continue;
+    for(let i=0;i<n;i++) out.push({d, period:p, idx:i, dow, elig});
+  }
+  return out;
+}
 function computeTargets(slots){
   const weight={}, target={};
   for(const s of slots) for(const id of s.elig) weight[id]=(weight[id]||0)+1;
@@ -280,31 +309,28 @@ function computeTargets(slots){
   for(const id in weight) target[id] = totalW ? slots.length*weight[id]/totalW : 0;
   return {weight, target};
 }
-
-function autoAssign(keepLocked=true){
-  const slots = buildSlots();
+function autoAssign(p, keepLocked=true){
+  const slots = buildSlots(p);
   if(!slots.length) return null;
   const {target} = computeTargets(slots);
   const count={}, perDay={}, result={};
-  S.students.forEach(s=>count[s.id]=0);
+  roster(p).forEach(s=>count[s.id]=0);
 
   for(const s of slots){
-    const k = key(s.d,s.period,s.idx), cur = SHIFTS[k];
-    if(keepLocked && cur && cur.locked && cur.studentId && stuById(cur.studentId)){
+    const k = key(s.d,p,s.idx), cur = SHIFTS[k];
+    if(keepLocked && cur && cur.locked && cur.studentId && stuById(p,cur.studentId)){
       result[k] = {studentId:cur.studentId, locked:true};
       count[cur.studentId] = (count[cur.studentId]||0)+1;
       (perDay[s.d] ||= new Set()).add(cur.studentId);
     }
   }
-
-  // 先處理「可選家長最少」的時段，避免稀缺時段最後沒人可排
-  const todo = slots.filter(s=>!result[key(s.d,s.period,s.idx)])
+  // 先處理「可選家長最少」的時段，避免稀缺日期最後沒人可排
+  const todo = slots.filter(s=>!result[key(s.d,p,s.idx)])
                     .sort((a,b)=> a.elig.length-b.elig.length || (a.d<b.d?-1:a.d>b.d?1:0) || a.idx-b.idx);
-
   for(const s of todo){
     const day = (perDay[s.d] ||= new Set());
     let cands = s.elig.filter(id=>!day.has(id));
-    if(!cands.length) cands = s.elig.slice();           // 同日不重複排不到就放寬
+    if(!cands.length) cands = s.elig.slice();
     cands.sort((x,y)=>{
       const rx = (count[x]||0)/(target[x]||1e-9), ry = (count[y]||0)/(target[y]||1e-9);
       if(Math.abs(rx-ry)>1e-9) return rx-ry;
@@ -312,36 +338,34 @@ function autoAssign(keepLocked=true){
       return x<y?-1:1;
     });
     const pick = cands[0];
-    result[key(s.d,s.period,s.idx)] = {studentId:pick, locked:false};
+    result[key(s.d,p,s.idx)] = {studentId:pick, locked:false};
     count[pick]=(count[pick]||0)+1;
     day.add(pick);
   }
   return {result, target, count, slots};
 }
 
-/* ---------- 儲存：本機 ---------- */
-function saveLocal(){ try{ localStorage.setItem(LS, JSON.stringify({S, SHIFTS, me})); }catch(e){} }
+/* ---------- 儲存 ---------- */
+function saveLocal(){ try{ localStorage.setItem(LS, JSON.stringify({S, SHIFTS, ME, CP})); }catch(e){} }
 function loadLocal(){
   try{
-    const raw = JSON.parse(localStorage.getItem(LS)||'null');
-    if(raw){ S = {settings:normSettings(raw.S?.settings), students:raw.S?.students||[], holidays:raw.S?.holidays||[]};
-             SHIFTS = raw.SHIFTS || {}; me = raw.me || ''; }
+    let raw = JSON.parse(localStorage.getItem(LS)||'null');
+    if(raw){ S=normalize(raw.S); SHIFTS=raw.SHIFTS||{}; ME=raw.ME||{p9:'',night:''}; CP=raw.CP||'p9'; return; }
+    const old = JSON.parse(localStorage.getItem(LS_OLD)||'null');   // 從舊版搬移
+    if(old){ S=normalize(old.S); SHIFTS=old.SHIFTS||{}; }
   }catch(e){}
 }
-
-/* ---------- 儲存：Firestore ---------- */
 async function pushMeta(){
   saveLocal();
   if(mode!=='firebase') return;
   try{
     suppress = true;
     await db.collection('board').doc('meta').set({
-      settings:S.settings, students:S.students, holidays:S.holidays, updatedAt:Date.now()
+      settings:S.settings, rosters:S.rosters, holidays:S.holidays, updatedAt:Date.now()
     });
   }catch(e){ toast('儲存失敗：'+e.message); }
   finally{ setTimeout(()=>suppress=false, 300); }
 }
-
 async function pushShifts(list){
   saveLocal();
   if(mode!=='firebase') return;
@@ -351,8 +375,7 @@ async function pushShifts(list){
       const batch = db.batch();
       list.slice(i,i+400).forEach(({d,period,idx,v})=>{
         batch.set(db.collection('shifts').doc(docId(d,period,idx)), {
-          d, period, idx, studentId: v?.studentId||'', locked: !!v?.locked,
-          updatedBy: me||'', updatedAt: Date.now()
+          d, period, idx, studentId:v?.studentId||'', locked:!!v?.locked, updatedAt:Date.now()
         });
       });
       await batch.commit();
@@ -364,55 +387,45 @@ async function pushShifts(list){
 function parseFbConfig(text){
   if(!text) return null;
   const get = k => (text.match(new RegExp(k+'\\s*:\\s*["\']([^"\']+)["\']'))||[])[1];
-  const cfg = {
-    apiKey:get('apiKey'), authDomain:get('authDomain'), projectId:get('projectId'),
-    storageBucket:get('storageBucket'), messagingSenderId:get('messagingSenderId'), appId:get('appId')
-  };
+  const cfg = { apiKey:get('apiKey'), authDomain:get('authDomain'), projectId:get('projectId'),
+                storageBucket:get('storageBucket'), messagingSenderId:get('messagingSenderId'), appId:get('appId') };
   if(!cfg.apiKey || !cfg.projectId) return null;
   Object.keys(cfg).forEach(k=>{ if(!cfg[k]) delete cfg[k]; });
   return cfg;
 }
-
 async function connect(cfg, quiet){
-  if(!cfg) { mode='local'; setConn(); return false; }
+  if(!cfg){ mode='local'; setConn(); return false; }
   try{
     if(!firebase.apps.length) firebase.initializeApp(cfg);
     db = firebase.firestore();
-    await db.collection('board').doc('meta').get();   // 連線測試
+    await db.collection('board').doc('meta').get();
     mode='firebase';
     localStorage.setItem(LS_CFG, JSON.stringify(cfg));
 
     db.collection('board').doc('meta').onSnapshot(snap=>{
       if(suppress || !snap.exists) return;
-      const d = snap.data();
-      S = { settings:normSettings(d.settings), students:d.students||[], holidays:d.holidays||[] };
-      saveLocal(); renderAll();
+      S = normalize(snap.data()); saveLocal(); renderAll();
     }, e=>toast('讀取設定失敗：'+e.message));
 
     db.collection('shifts').onSnapshot(snap=>{
       if(suppress) return;
       const next={};
       snap.forEach(doc=>{ const r=doc.data(); next[key(r.d,r.period,r.idx)]={studentId:r.studentId||'', locked:!!r.locked}; });
-      SHIFTS = next; saveLocal(); renderBoard(); renderStats();
+      SHIFTS=next; saveLocal(); renderBoard(); renderStats();
     }, e=>toast('讀取班表失敗：'+e.message));
 
     setConn();
     if(!quiet) toast('已連線 Firebase，資料即時同步中');
     return true;
-  }catch(e){
-    mode='local'; db=null; setConn();
-    toast('連線失敗：'+(e.message||e));
-    return false;
-  }
+  }catch(e){ mode='local'; db=null; setConn(); toast('連線失敗：'+(e.message||e)); return false; }
 }
-
 function setConn(){
   const el=$('#conn');
-  if(mode==='firebase'){ el.textContent='☁️ Firebase 即時同步'; el.className='pill on'; }
-  else { el.textContent='💾 單機模式（僅存在本瀏覽器）'; el.className='pill off'; }
+  if(mode==='firebase'){ el.textContent='☁️ 即時同步'; el.className='pill on'; }
+  else { el.textContent='💾 單機模式'; el.className='pill off'; }
 }
 
-/* ---------- 畫面：班表 ---------- */
+/* ---------- 畫面 ---------- */
 function renderMonths(){
   const sel=$('#monthSel'), months=[...new Set(dateRange(S.settings.startDate,S.settings.endDate).map(d=>d.slice(0,7)))];
   const prev=sel.value;
@@ -422,100 +435,99 @@ function renderMonths(){
 }
 
 function renderBoard(){
-  const t=$('#boardTbl'), month=$('#monthSel').value, view=$('#viewSel').value;
-  const slots = buildSlots();
-  if(!slots.length){
+  const t=$('#boardTbl'), month=$('#monthSel').value, view=$('#viewSel').value, p=CP, me=ME[p];
+  $('#boardHint').textContent =
+    `目前檢視「${PERIODS[p]}」班表。點下拉選單即可手動指定家長；🔒 表示鎖定，自動排班不會更動。只有${PERIODS[p]}名單中、該星期幾有到課的家長會出現在選項裡。`;
+  const n = Number(S.settings.perSlot[p]||0);
+  if(n<=0){
     t.innerHTML = `<tr><td style="padding:24px;text-align:center;color:#888">
-      尚無可排班的時段。請先到「設定」填學期日期，並到「名單」加入家長與到課星期。</td></tr>`;
+      「${PERIODS[p]}」目前停用（每天需要人數為 0）。到「設定」把人數改成 1 以上即可啟用。</td></tr>`;
     return;
   }
-  const byDate = {};
-  slots.forEach(s => (byDate[s.d] ||= []).push(s));
-  const dates = Object.keys(byDate).sort().filter(d => !month || d.startsWith(month));
+  const slots = buildSlots(p);
+  if(!slots.length){
+    t.innerHTML = `<tr><td style="padding:24px;text-align:center;color:#888">
+      「${PERIODS[p]}」尚無可排班的時段。請先到「設定」填學期日期，並到「名單」加入這個時段的家長與到課星期。</td></tr>`;
+    return;
+  }
+  const byDate={}; slots.forEach(s=>(byDate[s.d] ||= []).push(s));
+  const dates = Object.keys(byDate).sort().filter(d=>!month || d.startsWith(month));
 
-  const maxN = {p9:Number(S.settings.perSlot.p9||0), night:Number(S.settings.perSlot.night||0)};
   let head = '<tr><th style="width:110px">日期</th><th style="width:40px">週</th>';
-  PERIODS.forEach(P=>{ for(let i=0;i<maxN[P.k];i++) head += `<th>${P.name}${maxN[P.k]>1?' '+(i+1):''}</th>`; });
+  for(let i=0;i<n;i++) head += `<th>${PERIODS[p]}${n>1?' '+(i+1):''}</th>`;
   head += '</tr>';
 
   let rows='';
   for(const d of dates){
     const dow = parseISO(d).getDay();
-    const cells = {};
-    byDate[d].forEach(s=> cells[s.period+'|'+s.idx]=s);
     let tds='', anyMine=false, anyEmpty=false;
-    PERIODS.forEach(P=>{
-      for(let i=0;i<maxN[P.k];i++){
-        const s = cells[P.k+'|'+i];
-        if(!s){ tds += `<td class="na">—</td>`; continue; }
-        const k = key(d,P.k,i), cur = SHIFTS[k]||{};
-        const mine = cur.studentId && cur.studentId===me;
-        if(mine) anyMine=true;
-        if(!cur.studentId) anyEmpty=true;
-        const opts = ['<option value="">— 未排 —</option>'].concat(
-          s.elig.map(id=>{
-            const st=stuById(id); if(!st) return '';
-            return `<option value="${id}"${cur.studentId===id?' selected':''}>${esc(labelOf(st))}</option>`;
-          })
-        ).join('');
-        tds += `<td class="slot ${cur.studentId?'filled':'empty'}${mine?' mine':''}">
-            <div style="display:flex;align-items:center;gap:2px">
-              <select data-k="${k}" class="cellSel">${opts}</select>
-              <button class="lock ${cur.locked?'on':''}" data-lock="${k}" title="鎖定/解除">🔒</button>
-            </div></td>`;
-      }
-    });
+    for(let i=0;i<n;i++){
+      const s = byDate[d].find(x=>x.idx===i);
+      const k = key(d,p,i), cur = SHIFTS[k]||{};
+      const mine = cur.studentId && cur.studentId===me;
+      if(mine) anyMine=true;
+      if(!cur.studentId) anyEmpty=true;
+      const opts = ['<option value="">— 未排 —</option>'].concat(
+        (s?.elig||[]).map(id=>{
+          const st=stuById(p,id); if(!st) return '';
+          return `<option value="${id}"${cur.studentId===id?' selected':''}>${esc(labelOf(st))}</option>`;
+        })).join('');
+      tds += `<td class="slot ${cur.studentId?'filled':'empty'}${mine?' mine':''}">
+          <div style="display:flex;align-items:center;gap:2px">
+            <select data-k="${k}" class="cellSel">${opts}</select>
+            <button class="lock ${cur.locked?'on':''}" data-lock="${k}" title="鎖定/解除">🔒</button>
+          </div></td>`;
+    }
     if(view==='mine' && !anyMine) continue;
     if(view==='empty' && !anyEmpty) continue;
     rows += `<tr><td>${d}</td><td>${DOWN[dow]}</td>${tds}</tr>`;
   }
-  const cols = 2 + maxN.p9 + maxN.night;
-  t.innerHTML = head + (rows || `<tr><td colspan="${cols}" style="padding:20px;text-align:center;color:#888">此篩選條件下沒有資料</td></tr>`);
+  t.innerHTML = head + (rows || `<tr><td colspan="${2+n}" style="padding:20px;text-align:center;color:#888">此篩選條件下沒有資料</td></tr>`);
 }
 
-/* ---------- 畫面：名單 ---------- */
 function renderRoster(){
-  const t=$('#rosterTbl');
-  let head = `<tr><th style="width:110px">學生姓名</th><th style="width:110px">家長稱呼</th><th style="width:130px">聯絡方式</th>`;
-  PERIODS.forEach(P=> head += `<th>${P.name} 到課星期</th>`);
-  head += `<th style="width:50px"></th></tr>`;
-  const rows = S.students.map(s=>{
-    let dows='';
-    PERIODS.forEach(P=>{
-      dows += `<td><span class="dow">` + [1,2,3,4,5].map(n=>
-        `<label><input type="checkbox" data-att="${s.id}" data-p="${P.k}" data-n="${n}"${(s.attend?.[P.k]||[]).includes(n)?' checked':''}><span>${DOWN[n]}</span></label>`
-      ).join('') + `</span></td>`;
-    });
-    return `<tr>
+  const t=$('#rosterTbl'), p=CP, list=roster(p);
+  $('#rosterHint').innerHTML =
+    `這是「<b>${PERIODS[p]}</b>」的家長名單，跟「${PERIODS[other(p)]}」完全分開管理。
+     「到課星期」＝ 小孩固定哪幾天會留下來上${PERIODS[p]}；自動排班只會把該家長排在勾選的日子。`;
+  const head = `<tr><th style="width:120px">學生姓名</th><th style="width:120px">家長稱呼</th>
+      <th style="width:140px">聯絡方式</th><th>到課星期</th><th style="width:50px"></th></tr>`;
+  const rows = list.map(s=>`<tr>
       <td><input value="${esc(s.name)}" data-fld="name" data-id="${s.id}" style="width:100%"></td>
       <td><input value="${esc(s.parent)}" data-fld="parent" data-id="${s.id}" style="width:100%"></td>
       <td><input value="${esc(s.contact||'')}" data-fld="contact" data-id="${s.id}" style="width:100%"></td>
-      ${dows}
+      <td><span class="dow">` + [1,2,3,4,5].map(nn=>
+        `<label><input type="checkbox" data-att="${s.id}" data-n="${nn}"${s.days.includes(nn)?' checked':''}><span>${DOWN[nn]}</span></label>`
+      ).join('') + `</span></td>
       <td><button class="btn danger" data-del="${s.id}" style="padding:4px 8px">刪</button></td>
-    </tr>`;
-  }).join('');
-  t.innerHTML = head + (rows || `<tr><td colspan="7" style="padding:20px;text-align:center;color:#888">尚無名單，請新增或匯入 Excel</td></tr>`);
-  $('#stuCount').textContent = `共 ${S.students.length} 位`;
+    </tr>`).join('');
+  t.innerHTML = head + (rows || `<tr><td colspan="5" style="padding:20px;text-align:center;color:#888">
+      「${PERIODS[p]}」尚無名單，請新增、匯入 Excel，或從另一個時段複製</td></tr>`);
+  $('#stuCount').textContent = `${PERIODS[p]}：共 ${list.length} 位`;
 
-  const sel=$('#meSel'), prev=me;
-  sel.innerHTML = '<option value="">（請選擇）</option>' + S.students.map(s=>`<option value="${s.id}">${esc(labelOf(s))}</option>`).join('');
-  sel.value = S.students.some(s=>s.id===prev) ? prev : '';
+  const sel=$('#meSel'), prev=ME[p];
+  sel.innerHTML = '<option value="">（請選擇）</option>' + list.map(s=>`<option value="${s.id}">${esc(labelOf(s))}</option>`).join('');
+  sel.value = list.some(s=>s.id===prev) ? prev : '';
 }
 
-/* ---------- 畫面：統計 ---------- */
 function renderStats(){
-  const t=$('#statsTbl'), slots=buildSlots();
-  if(!slots.length){ t.innerHTML='<tr><td style="padding:20px;color:#888">尚無資料</td></tr>'; return; }
-  const {target} = computeTargets(slots);
-  const count={}; S.students.forEach(s=>count[s.id]=0);
-  Object.values(SHIFTS).forEach(v=>{ if(v.studentId && count[v.studentId]!==undefined) count[v.studentId]++; });
+  const t=$('#statsTbl'), p=CP, slots=buildSlots(p);
+  $('#statsHint').textContent =
+    `「${PERIODS[p]}」的公平度。應排班數＝依各家庭小孩在這個時段可值的日子數按比例分配；兩個時段各自獨立計算。`;
+  if(!slots.length){ t.innerHTML=`<tr><td style="padding:20px;color:#888">「${PERIODS[p]}」尚無資料</td></tr>`; return; }
+  const {target}=computeTargets(slots);
+  const count={}; roster(p).forEach(s=>count[s.id]=0);
+  Object.entries(SHIFTS).forEach(([k,v])=>{
+    if(k.split('|')[1]!==p) return;
+    if(v.studentId && count[v.studentId]!==undefined) count[v.studentId]++;
+  });
   const maxV = Math.max(1, ...Object.values(count), ...Object.values(target));
-  const list = S.students.slice().sort((a,b)=>(count[b.id]||0)-(count[a.id]||0));
-  t.innerHTML = `<tr><th>家長</th><th>學生</th><th style="width:90px">可值時段</th><th style="width:90px">應排班數</th>
+  const list = roster(p).slice().sort((a,b)=>(count[b.id]||0)-(count[a.id]||0));
+  t.innerHTML = `<tr><th>家長</th><th>學生</th><th style="width:90px">可值日數</th><th style="width:90px">應排班數</th>
     <th style="width:90px">實排班數</th><th style="width:80px">差距</th><th>分佈</th></tr>` +
     list.map(s=>{
-      const tg = target[s.id]||0, ct = count[s.id]||0, diff = ct-tg;
-      const elig = slots.filter(x=>x.elig.includes(s.id)).length;
+      const tg=target[s.id]||0, ct=count[s.id]||0, diff=ct-tg;
+      const elig=slots.filter(x=>x.elig.includes(s.id)).length;
       const color = Math.abs(diff)<=1 ? 'var(--ok)' : (diff>0?'var(--danger)':'var(--warn)');
       return `<tr><td>${esc(s.parent||'—')}</td><td>${esc(s.name)}</td><td>${elig}</td>
         <td>${tg.toFixed(1)}</td><td><b>${ct}</b></td>
@@ -526,102 +538,112 @@ function renderStats(){
      <th>${Object.values(count).reduce((a,b)=>a+b,0)}</th><th></th><th></th></tr>`;
 }
 
-/* ---------- 畫面：設定 ---------- */
 function renderSetup(){
+  const p=CP;
   $('#cfgStart').value = S.settings.startDate||'';
   $('#cfgEnd').value   = S.settings.endDate||'';
-  $('#cfgN9').value    = S.settings.perSlot.p9 ?? 1;
-  $('#cfgNn').value    = S.settings.perSlot.night ?? 1;
-  $('#cfgT9s').value   = S.settings.time.p9[0];
-  $('#cfgT9e').value   = S.settings.time.p9[1];
-  $('#cfgTns').value   = S.settings.time.night[0];
-  $('#cfgTne').value   = S.settings.time.night[1];
+  $('#cfgPerTitle').textContent = `${PERIODS[p]} 設定`;
+  $('#cfgN').value  = S.settings.perSlot[p] ?? 1;
+  $('#cfgTs').value = S.settings.time[p][0];
+  $('#cfgTe').value = S.settings.time[p][1];
+  const sc = {all:'兩時段', p9:'僅第九節', night:'僅晚自習'};
   $('#holList').innerHTML = S.holidays.length
     ? S.holidays.slice().sort((a,b)=>a.d<b.d?-1:1).map(h=>
-        `<span style="display:inline-block;margin:3px 6px 3px 0;background:#eef1f4;padding:3px 8px;border-radius:6px">
-          ${h.d} ${esc(h.note||'')} <button class="lock on" data-delhol="${h.d}">✕</button></span>`).join('')
+        `<span class="tag">${h.d} ${esc(h.note||'')} <b style="color:#6b7280">[${sc[h.scope||'all']}]</b>
+         <button class="lock on" data-delhol="${h.d}|${h.scope||'all'}">✕</button></span>`).join('')
     : '（尚未設定）';
 }
 
-function renderAll(){ renderMonths(); renderBoard(); renderRoster(); renderStats(); renderSetup(); }
+function renderAll(){
+  document.body.classList.toggle('night', CP==='night');
+  document.querySelectorAll('#perSeg button').forEach(b=>b.classList.toggle('on', b.dataset.p===CP));
+  renderMonths(); renderBoard(); renderRoster(); renderStats(); renderSetup();
+}
 
 /* ---------- 事件 ---------- */
+document.querySelectorAll('#perSeg button').forEach(b=>b.onclick=()=>{ CP=b.dataset.p; saveLocal(); renderAll(); });
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('nav button').forEach(x=>x.classList.remove('active'));
   b.classList.add('active');
   ['board','roster','stats','setup'].forEach(t=> $('#tab-'+t).hidden = (t!==b.dataset.tab));
 });
-
-$('#meSel').onchange = e => { me = e.target.value; saveLocal(); renderBoard(); };
+$('#meSel').onchange = e => { ME[CP]=e.target.value; saveLocal(); renderBoard(); };
 $('#monthSel').onchange = renderBoard;
 $('#viewSel').onchange = renderBoard;
 
 $('#boardTbl').addEventListener('change', async e=>{
-  const sel = e.target.closest('.cellSel'); if(!sel) return;
-  const k = sel.dataset.k, [d,p,i] = k.split('|');
-  SHIFTS[k] = {studentId: sel.value, locked: SHIFTS[k]?.locked||false};
+  const sel=e.target.closest('.cellSel'); if(!sel) return;
+  const k=sel.dataset.k, [d,p,i]=k.split('|');
+  SHIFTS[k]={studentId:sel.value, locked:SHIFTS[k]?.locked||false};
   await pushShifts([{d, period:p, idx:Number(i), v:SHIFTS[k]}]);
   renderBoard(); renderStats();
 });
 $('#boardTbl').addEventListener('click', async e=>{
-  const b = e.target.closest('[data-lock]'); if(!b) return;
-  const k = b.dataset.lock, [d,p,i]=k.split('|');
-  SHIFTS[k] = {studentId: SHIFTS[k]?.studentId||'', locked: !(SHIFTS[k]?.locked)};
+  const b=e.target.closest('[data-lock]'); if(!b) return;
+  const k=b.dataset.lock, [d,p,i]=k.split('|');
+  SHIFTS[k]={studentId:SHIFTS[k]?.studentId||'', locked:!(SHIFTS[k]?.locked)};
   await pushShifts([{d, period:p, idx:Number(i), v:SHIFTS[k]}]);
   renderBoard();
 });
 
 $('#btnAuto').onclick = async ()=>{
-  const locked = Object.values(SHIFTS).filter(v=>v.locked && v.studentId).length;
-  if(!confirm(`將重新排定所有未鎖定的時段${locked?`（保留 ${locked} 格已鎖定）`:''}。確定嗎？`)) return;
-  const r = autoAssign(true);
-  if(!r){ toast('沒有可排班的時段'); return; }
-  SHIFTS = r.result;
-  await pushShifts(r.slots.map(s=>({d:s.d, period:s.period, idx:s.idx, v:SHIFTS[key(s.d,s.period,s.idx)]})));
+  const p=CP;
+  const locked = Object.entries(SHIFTS).filter(([k,v])=>k.split('|')[1]===p && v.locked && v.studentId).length;
+  if(!confirm(`只會重排「${PERIODS[p]}」，另一個時段不受影響${locked?`（保留 ${locked} 格已鎖定）`:''}。確定嗎？`)) return;
+  const r = autoAssign(p, true);
+  if(!r){ toast(`「${PERIODS[p]}」沒有可排班的時段`); return; }
+  Object.assign(SHIFTS, r.result);
+  await pushShifts(r.slots.map(s=>({d:s.d, period:p, idx:s.idx, v:SHIFTS[key(s.d,p,s.idx)]})));
   renderAll();
-  toast(`已排定 ${r.slots.length} 個時段`);
+  toast(`「${PERIODS[p]}」已排定 ${r.slots.length} 個時段`);
 };
-
 $('#btnClear').onclick = async ()=>{
-  if(!confirm('清空所有未鎖定的排班？')) return;
+  const p=CP;
+  if(!confirm(`清空「${PERIODS[p]}」所有未鎖定的排班？`)) return;
   const list=[];
-  buildSlots().forEach(s=>{
-    const k=key(s.d,s.period,s.idx);
+  buildSlots(p).forEach(s=>{
+    const k=key(s.d,p,s.idx);
     if(SHIFTS[k]?.locked) return;
     SHIFTS[k]={studentId:'', locked:false};
-    list.push({d:s.d, period:s.period, idx:s.idx, v:SHIFTS[k]});
+    list.push({d:s.d, period:p, idx:s.idx, v:SHIFTS[k]});
   });
   await pushShifts(list); renderAll(); toast('已清空');
 };
 
-/* 名單編輯 */
+/* 名單 */
 $('#btnAddStu').onclick = async ()=>{
-  S.students.push({id:uid(), name:'', parent:'', contact:'', attend:{p9:[1,2,3,4,5], night:[1,2,3,4,5]}});
+  roster(CP).push({id:uid(), name:'', parent:'', contact:'', days:[1,2,3,4,5]});
   await pushMeta(); renderAll();
+};
+$('#btnCopyRoster').onclick = async ()=>{
+  const from=other(CP), src=roster(from);
+  if(!src.length){ toast(`「${PERIODS[from]}」沒有名單可複製`); return; }
+  if(!confirm(`把「${PERIODS[from]}」的 ${src.length} 位家長複製到「${PERIODS[CP]}」？（會覆蓋目前這個時段的名單，到課星期一併複製，之後可各自修改）`)) return;
+  S.rosters[CP] = src.map(s=>({...s, id:uid(), days:[...s.days]}));
+  await pushMeta(); renderAll(); toast('已複製');
 };
 $('#rosterTbl').addEventListener('input', e=>{
   const f=e.target.dataset.fld; if(!f) return;
-  const s=stuById(e.target.dataset.id); if(!s) return;
+  const s=stuById(CP, e.target.dataset.id); if(!s) return;
   s[f]=e.target.value;
   clearTimeout(window._sv); window._sv=setTimeout(()=>{ pushMeta(); renderStats(); }, 600);
 });
 $('#rosterTbl').addEventListener('change', async e=>{
-  if(e.target.dataset.att){
-    const s=stuById(e.target.dataset.att), p=e.target.dataset.p, n=Number(e.target.dataset.n);
-    s.attend = s.attend||{}; s.attend[p]=s.attend[p]||[];
-    if(e.target.checked){ if(!s.attend[p].includes(n)) s.attend[p].push(n); }
-    else s.attend[p]=s.attend[p].filter(x=>x!==n);
-    s.attend[p].sort();
-    await pushMeta(); renderBoard(); renderStats();
-  }
+  if(!e.target.dataset.att) return;
+  const s=stuById(CP, e.target.dataset.att), n=Number(e.target.dataset.n);
+  if(e.target.checked){ if(!s.days.includes(n)) s.days.push(n); }
+  else s.days=s.days.filter(x=>x!==n);
+  s.days.sort();
+  await pushMeta(); renderBoard(); renderStats();
 });
 $('#rosterTbl').addEventListener('click', async e=>{
   const id=e.target.dataset.del; if(!id) return;
-  if(!confirm('確定刪除這位家長？')) return;
-  S.students = S.students.filter(s=>s.id!==id);
+  if(!confirm('確定從這個時段的名單刪除這位家長？')) return;
+  S.rosters[CP]=roster(CP).filter(s=>s.id!==id);
   const list=[];
   Object.entries(SHIFTS).forEach(([k,v])=>{
-    if(v.studentId===id){ SHIFTS[k]={studentId:'',locked:v.locked}; const [d,p,i]=k.split('|'); list.push({d,period:p,idx:Number(i),v:SHIFTS[k]}); }
+    const [d,p,i]=k.split('|');
+    if(p===CP && v.studentId===id){ SHIFTS[k]={studentId:'',locked:v.locked}; list.push({d,period:p,idx:Number(i),v:SHIFTS[k]}); }
   });
   await pushMeta(); await pushShifts(list); renderAll();
 });
@@ -629,31 +651,33 @@ $('#rosterTbl').addEventListener('click', async e=>{
 /* 設定 */
 $('#btnSaveCfg').onclick = async ()=>{
   S.settings.startDate=$('#cfgStart').value; S.settings.endDate=$('#cfgEnd').value;
-  S.settings.perSlot={p9:Number($('#cfgN9').value||0), night:Number($('#cfgNn').value||0)};
-  S.settings.time={p9:[$('#cfgT9s').value||'16:10', $('#cfgT9e').value||'17:00'],
-                   night:[$('#cfgTns').value||'18:30', $('#cfgTne').value||'20:30']};
+  S.settings.perSlot[CP]=Number($('#cfgN').value||0);
+  S.settings.time[CP]=[$('#cfgTs').value||'16:10', $('#cfgTe').value||'17:00'];
   await pushMeta(); renderAll(); toast('已儲存');
 };
 $('#btnAddHol').onclick = async ()=>{
   const d=$('#holD').value; if(!d) return;
-  if(!S.holidays.some(h=>h.d===d)) S.holidays.push({d, note:$('#holNote').value});
+  const scope=$('#holScope').value;
+  if(!S.holidays.some(h=>h.d===d && (h.scope||'all')===scope)) S.holidays.push({d, note:$('#holNote').value, scope});
   $('#holD').value=''; $('#holNote').value='';
   await pushMeta(); renderAll();
 };
 $('#holList').addEventListener('click', async e=>{
-  const d=e.target.dataset.delhol; if(!d) return;
-  S.holidays=S.holidays.filter(h=>h.d!==d); await pushMeta(); renderAll();
+  const v=e.target.dataset.delhol; if(!v) return;
+  const [d,scope]=v.split('|');
+  S.holidays=S.holidays.filter(h=>!(h.d===d && (h.scope||'all')===scope));
+  await pushMeta(); renderAll();
 });
 $('#btnConnect').onclick = async ()=>{
-  const cfg = parseFbConfig($('#cfgFb').value);
-  if(!cfg){ toast('讀不到設定，請確認貼上的內容含有 apiKey 與 projectId'); return; }
+  const cfg=parseFbConfig($('#cfgFb').value);
+  if(!cfg){ toast('讀不到設定，請確認內容含有 apiKey 與 projectId'); return; }
   if(await connect(cfg)) renderAll();
 };
 $('#btnShareLink').onclick = ()=>{
   const cfg = parseFbConfig($('#cfgFb').value) || JSON.parse(localStorage.getItem(LS_CFG)||'null');
   if(!cfg){ toast('請先完成連線設定'); return; }
   const link = location.origin+location.pathname+'#c='+encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(cfg)))));
-  navigator.clipboard.writeText(link).then(()=>toast('連結已複製，可貼到家長群組')).catch(()=>prompt('複製此連結：', link));
+  navigator.clipboard.writeText(link).then(()=>toast('連結已複製')).catch(()=>prompt('複製此連結：', link));
 };
 $('#btnUpload').onclick = async ()=>{
   if(mode!=='firebase'){ toast('尚未連線'); return; }
@@ -663,42 +687,33 @@ $('#btnUpload').onclick = async ()=>{
 };
 $('#btnReset').onclick = ()=>{
   if(!confirm('清除本機資料？（雲端資料不受影響）')) return;
-  localStorage.removeItem(LS); location.reload();
+  localStorage.removeItem(LS); localStorage.removeItem(LS_OLD); location.reload();
 };
 
 /* ---------- 匯出日曆 (.ics) ---------- */
-function icsStamp(dateISO, hhmm){
-  // 台灣固定 UTC+8，無日光節約，直接減 8 小時輸出 UTC
+function icsStamp(dateISO, hhmm){                       // 台灣 UTC+8，無日光節約
   const [y,m,d]=dateISO.split('-').map(Number), [H,M]=hhmm.split(':').map(Number);
-  const t = new Date(Date.UTC(y, m-1, d, H-8, M, 0));
-  const p = n=>String(n).padStart(2,'0');
+  const t=new Date(Date.UTC(y, m-1, d, H-8, M, 0)), p=n=>String(n).padStart(2,'0');
   return `${t.getUTCFullYear()}${p(t.getUTCMonth()+1)}${p(t.getUTCDate())}T${p(t.getUTCHours())}${p(t.getUTCMinutes())}00Z`;
 }
 $('#btnIcsMine').onclick = ()=>{
+  const p=CP, me=ME[p];
   if(!me){ toast('請先在右上角選擇「我是」'); return; }
-  const st = stuById(me);
-  const mine = buildSlots().filter(s=> SHIFTS[key(s.d,s.period,s.idx)]?.studentId === me);
-  if(!mine.length){ toast('目前沒有排到你的班'); return; }
-  const now = icsStamp(toISO(new Date()),'12:00');
-  const ev = mine.map(s=>{
-    const P = PERIODS.find(p=>p.k===s.period);
-    const [t1,t2] = S.settings.time[s.period];
-    return ['BEGIN:VEVENT',
-      `UID:${s.d}-${s.period}-${s.idx}-${me}@parent-duty-roster`,
-      `DTSTAMP:${now}`,
-      `DTSTART:${icsStamp(s.d,t1)}`,
-      `DTEND:${icsStamp(s.d,t2)}`,
-      `SUMMARY:值班 ${P.name}（${st.name}）`,
-      `DESCRIPTION:家長值班排班系統`,
+  const st=stuById(p,me);
+  const mine=buildSlots(p).filter(s=>SHIFTS[key(s.d,p,s.idx)]?.studentId===me);
+  if(!mine.length){ toast(`「${PERIODS[p]}」目前沒有排到你的班`); return; }
+  const now=icsStamp(toISO(new Date()),'12:00');
+  const [t1,t2]=S.settings.time[p];
+  const ev = mine.map(s=>['BEGIN:VEVENT',
+      `UID:${s.d}-${p}-${s.idx}-${me}@parent-duty-roster`,
+      `DTSTAMP:${now}`, `DTSTART:${icsStamp(s.d,t1)}`, `DTEND:${icsStamp(s.d,t2)}`,
+      `SUMMARY:值班 ${PERIODS[p]}（${st.name}）`, 'DESCRIPTION:家長值班排班系統',
       'BEGIN:VALARM','TRIGGER:-PT2H','ACTION:DISPLAY','DESCRIPTION:今天輪到你值班','END:VALARM',
-      'END:VEVENT'].join('\r\n');
-  }).join('\r\n');
-  const ics = ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//parent-duty-roster//TW','CALSCALE:GREGORIAN',
-               'METHOD:PUBLISH', ev, 'END:VCALENDAR'].join('\r\n');
-  const url = URL.createObjectURL(new Blob([ics], {type:'text/calendar;charset=utf-8'}));
-  const a = document.createElement('a');
-  a.href=url; a.download=`我的值班_${st.parent||st.name}.ics`; a.click();
-  setTimeout(()=>URL.revokeObjectURL(url), 3000);
+      'END:VEVENT'].join('\r\n')).join('\r\n');
+  const ics=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//parent-duty-roster//TW','CALSCALE:GREGORIAN','METHOD:PUBLISH',ev,'END:VCALENDAR'].join('\r\n');
+  const url=URL.createObjectURL(new Blob([ics],{type:'text/calendar;charset=utf-8'}));
+  const a=document.createElement('a'); a.href=url; a.download=`我的值班_${PERIODS[p]}_${st.parent||st.name}.ics`; a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),3000);
   toast(`已匯出 ${mine.length} 筆，開啟檔案即可加入 Google 日曆`);
 };
 
@@ -707,8 +722,7 @@ function parseDows(v){
   if(v===undefined||v===null) return [];
   const s=String(v);
   if(/^(全|每天|1-5|一~五|一-五)/.test(s.trim())) return [1,2,3,4,5];
-  const map={'一':1,'二':2,'三':3,'四':4,'五':5};
-  const out=new Set();
+  const map={'一':1,'二':2,'三':3,'四':4,'五':5}, out=new Set();
   for(const ch of s){ if(/[1-5]/.test(ch)) out.add(Number(ch)); if(map[ch]) out.add(map[ch]); }
   return [...out].sort();
 }
@@ -716,97 +730,95 @@ const fmtDows = a => (a&&a.length) ? a.map(n=>DOWN[n]).join('、') : '';
 function xlDate(v){
   if(v instanceof Date) return toISO(v);
   if(typeof v==='number'){ const d=XLSX.SSF.parse_date_code(v); return `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`; }
-  const s=String(v||'').trim().replace(/\//g,'-');
-  const m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  const s=String(v||'').trim().replace(/\//g,'-'), m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
   return m ? `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}` : '';
 }
+const pick=(o,...keys)=>{ for(const kk of keys){ for(const k of Object.keys(o)) if(String(k).replace(/\s/g,'').includes(kk)) return o[k]; } return ''; };
 
 $('#btnTemplate').onclick = ()=>{
-  const wb = XLSX.utils.book_new();
-  const roster = [
-    ['學生姓名','家長稱呼','聯絡方式','第九節到課星期','晚自習到課星期'],
-    ['王小明','王媽媽','0912-345-678','一,三,五','三,五'],
-    ['陳小美','陳爸爸','0922-111-222','一,二,三,四,五','二,四'],
-    ['林小華','林媽媽','','二,四','']
-  ];
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(roster), '學生名單');
-  const hol = [['日期','說明'],['2026-09-28','教師節'],['2026-10-10','國慶日']];
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(hol), '不排班日期');
-  const help = [
-    ['欄位說明'],
-    ['到課星期可寫「一,三,五」或「1,3,5」，留空代表該時段完全不參與'],
-    ['寫「全」或「每天」等同於一到五'],
-    ['「不排班日期」放假日、段考、不上第九節的日子'],
-    ['匯入時「學生名單」分頁會覆蓋現有名單']
-  ];
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(help), '說明');
-  XLSX.writeFile(wb, '家長值班_名單範本.xlsx');
+  const p=CP, wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['學生姓名','家長稱呼','聯絡方式','到課星期'],
+    ['王小明','王媽媽','0912-345-678','一,三,五'],
+    ['陳小美','陳爸爸','0922-111-222','一,二,三,四,五'],
+    ['林小華','林媽媽','','二,四']
+  ]), '名單');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['日期','說明'],['2026-09-28','教師節'],['2026-10-10','國慶日']
+  ]), '不排班日期');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    [`這份範本是給「${PERIODS[p]}」用的`],
+    ['到課星期可寫「一,三,五」或「1,3,5」，寫「全」等同一到五'],
+    ['第九節和晚自習是兩份獨立名單，各自匯入'],
+    ['匯入時會覆蓋目前這個時段的名單，另一個時段不受影響'],
+    ['「不排班日期」匯入後會套用到兩個時段（可在設定頁改成只停某一個）']
+  ]), '說明');
+  XLSX.writeFile(wb, `家長值班_${PERIODS[p]}_名單範本.xlsx`);
 };
 
 $('#fileImp').onchange = async e=>{
   const f=e.target.files[0]; if(!f) return;
-  const wb = XLSX.read(await f.arrayBuffer(), {cellDates:true});
-  const rSheet = wb.Sheets['學生名單'] || wb.Sheets[wb.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(rSheet, {defval:''});
-  // 依關鍵字優先序比對欄位名稱（先找「學生」再找「姓名」，避免抓到「家長姓名」）
-  const pick=(o,...keys)=>{ for(const kk of keys){ for(const k of Object.keys(o)) if(String(k).replace(/\s/g,'').includes(kk)) return o[k]; } return ''; };
-  const students=[];
+  const p=CP;
+  const wb=XLSX.read(await f.arrayBuffer(), {cellDates:true});
+  const sh = wb.Sheets['名單'] || wb.Sheets['學生名單'] || wb.Sheets[wb.SheetNames[0]];
+  const rows=XLSX.utils.sheet_to_json(sh,{defval:''});
+  const list=[];
   for(const r of rows){
     const name=String(pick(r,'學生','姓名')||'').trim();
     const parent=String(pick(r,'家長','稱呼')||'').trim();
     if(!name && !parent) continue;
-    students.push({ id:uid(), name, parent, contact:String(pick(r,'聯絡','電話','手機')||'').trim(),
-      attend:{ p9:parseDows(pick(r,'第九節','九節','第9節')), night:parseDows(pick(r,'晚自習','自習','晚自修')) } });
+    let days = parseDows(pick(r,'到課星期','到課','星期'));
+    if(!days.length) days = parseDows(pick(r, p==='p9'?'第九節':'晚自習'));
+    list.push({id:uid(), name, parent, contact:String(pick(r,'聯絡','電話','手機')||'').trim(), days});
   }
-  if(!students.length){ toast('沒有讀到資料，請確認欄位名稱'); e.target.value=''; return; }
-  if(!confirm(`讀到 ${students.length} 筆名單，將覆蓋目前名單。確定匯入？`)){ e.target.value=''; return; }
-  S.students=students;
-  if(wb.Sheets['不排班日期']||wb.Sheets['假日']){
-    const hs = XLSX.utils.sheet_to_json(wb.Sheets['不排班日期']||wb.Sheets['假日'], {defval:''});
-    S.holidays = hs.map(r=>({d:xlDate(pick(r,'日期','date')), note:String(pick(r,'說明','備註')||'')})).filter(h=>h.d);
+  if(!list.length){ toast('沒有讀到資料，請確認欄位名稱'); e.target.value=''; return; }
+  if(!confirm(`讀到 ${list.length} 筆，將覆蓋「${PERIODS[p]}」目前的名單（另一個時段不受影響）。確定匯入？`)){ e.target.value=''; return; }
+  S.rosters[p]=list;
+  const hs = wb.Sheets['不排班日期']||wb.Sheets['假日'];
+  if(hs){
+    const arr=XLSX.utils.sheet_to_json(hs,{defval:''})
+      .map(r=>({d:xlDate(pick(r,'日期','date')), note:String(pick(r,'說明','備註')||''), scope:'all'}))
+      .filter(h=>h.d);
+    arr.forEach(h=>{ if(!S.holidays.some(x=>x.d===h.d && (x.scope||'all')===h.scope)) S.holidays.push(h); });
   }
   await pushMeta(); renderAll(); e.target.value='';
-  toast(`已匯入 ${students.length} 筆`);
+  toast(`「${PERIODS[p]}」已匯入 ${list.length} 筆`);
 };
 
 $('#btnExportRoster').onclick = ()=>{
-  const aoa=[['學生姓名','家長稱呼','聯絡方式','第九節到課星期','晚自習到課星期']].concat(
-    S.students.map(s=>[s.name,s.parent,s.contact||'',fmtDows(s.attend?.p9),fmtDows(s.attend?.night)]));
-  const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), '學生名單');
+  const p=CP, wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(
-    [['日期','說明']].concat(S.holidays.map(h=>[h.d,h.note||'']))), '不排班日期');
-  XLSX.writeFile(wb, '家長值班_名單.xlsx');
+    [['學生姓名','家長稱呼','聯絡方式','到課星期']].concat(
+      roster(p).map(s=>[s.name,s.parent,s.contact||'',fmtDows(s.days)]))), '名單');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(
+    [['日期','說明','套用範圍']].concat(S.holidays.map(h=>[h.d,h.note||'',h.scope||'all']))), '不排班日期');
+  XLSX.writeFile(wb, `家長值班_${PERIODS[p]}_名單.xlsx`);
 };
 
 $('#btnExport').onclick = ()=>{
-  const slots=buildSlots();
+  const p=CP, slots=buildSlots(p), wb=XLSX.utils.book_new();
   const aoa=[['日期','星期','時段','順位','值班家長','學生','聯絡方式','鎖定']];
   slots.forEach(s=>{
-    const v=SHIFTS[key(s.d,s.period,s.idx)]||{}, st=stuById(v.studentId);
-    aoa.push([s.d, DOWN[s.dow], PERIODS.find(p=>p.k===s.period).name, s.idx+1,
-              st?.parent||'', st?.name||'', st?.contact||'', v.locked?'是':'']);
+    const v=SHIFTS[key(s.d,p,s.idx)]||{}, st=stuById(p,v.studentId);
+    aoa.push([s.d, DOWN[s.dow], PERIODS[p], s.idx+1, st?.parent||'', st?.name||'', st?.contact||'', v.locked?'是':'']);
   });
-  const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), '值班表');
-  const {target}=computeTargets(slots);
-  const cnt={}; Object.values(SHIFTS).forEach(v=>{ if(v.studentId) cnt[v.studentId]=(cnt[v.studentId]||0)+1; });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), `${PERIODS[p]}值班表`);
+  const {target}=computeTargets(slots), cnt={};
+  Object.entries(SHIFTS).forEach(([k,v])=>{ if(k.split('|')[1]===p && v.studentId) cnt[v.studentId]=(cnt[v.studentId]||0)+1; });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(
     [['家長','學生','應排班數','實排班數']].concat(
-      S.students.map(s=>[s.parent,s.name,Number((target[s.id]||0).toFixed(1)),cnt[s.id]||0]))), '統計');
-  XLSX.writeFile(wb, `家長值班表_${toISO(new Date())}.xlsx`);
+      roster(p).map(s=>[s.parent,s.name,Number((target[s.id]||0).toFixed(1)),cnt[s.id]||0]))), '統計');
+  XLSX.writeFile(wb, `${PERIODS[p]}值班表_${toISO(new Date())}.xlsx`);
 };
 
 /* ---------- 啟動 ---------- */
 (async function init(){
   loadLocal();
-  S.settings = normSettings(S.settings);
+  S = normalize(S);
 
   let cfg = BUILTIN_CFG;
   const hash = new URLSearchParams(location.hash.slice(1));
-  if(!cfg && hash.get('c')){
-    try{ cfg = JSON.parse(decodeURIComponent(escape(atob(hash.get('c'))))); }catch(e){}
-  }
+  if(!cfg && hash.get('c')){ try{ cfg = JSON.parse(decodeURIComponent(escape(atob(hash.get('c'))))); }catch(e){} }
   if(!cfg){ try{ cfg = JSON.parse(localStorage.getItem(LS_CFG)||'null'); }catch(e){} }
   if(cfg) $('#cfgFb').value = 'const firebaseConfig = ' + JSON.stringify(cfg, null, 2) + ';';
 
@@ -815,7 +827,7 @@ $('#btnExport').onclick = ()=>{
 
   if(!S.settings.startDate){
     const y=new Date().getFullYear();
-    S.settings.startDate = `${y}-09-01`; S.settings.endDate = `${y+1}-01-20`;
+    S.settings.startDate=`${y}-09-01`; S.settings.endDate=`${y+1}-01-20`;
   }
   renderAll();
 })();

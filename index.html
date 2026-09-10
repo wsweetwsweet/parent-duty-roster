@@ -127,12 +127,31 @@ code{background:#eef1f4;padding:1px 5px;border-radius:4px;font-size:12px}
     <label class="btn sec" style="cursor:pointer">
       匯入 Excel<input type="file" id="fileImp" accept=".xlsx,.xls,.csv" hidden>
     </label>
+    <button class="btn sec" id="btnGsheet">📄 從 Google 試算表匯入</button>
     <button class="btn sec" id="btnExportRoster">匯出名單</button>
     <button class="btn sec" id="btnCopyRoster">從另一個時段複製名單</button>
     <span class="grow"></span>
     <span class="muted" id="stuCount"></span>
   </div>
   <div class="hint" id="rosterHint"></div>
+
+  <div class="card" id="gsPanel" hidden>
+    <h3>從 Google 試算表匯入</h3>
+    <ol class="steps">
+      <li>在 Google 試算表按右上「共用」→ 一般存取權改成「<b>知道連結的任何人</b>」→ 角色「檢視者」。</li>
+      <li>複製網址列的整段網址，貼到下面。（也可以貼「檔案 → 分享 → 發布到網路」產生的網址）</li>
+      <li>欄位名稱要有「學生姓名／家長稱呼／到課星期」，跟 Excel 範本一樣。</li>
+    </ol>
+    <div class="row">
+      <input type="text" id="gsUrl" style="flex:1;min-width:280px"
+             placeholder="https://docs.google.com/spreadsheets/d/xxxxxxxx/edit#gid=0">
+      <label class="f"><span>分頁名稱（選填）</span><input type="text" id="gsTab" placeholder="名單" style="width:120px"></label>
+      <button class="btn" id="gsGo">讀取並匯入</button>
+      <button class="btn sec" id="gsClose">關閉</button>
+    </div>
+    <div class="muted" id="gsMsg"></div>
+  </div>
+
   <div class="wrap"><table id="rosterTbl"></table></div>
 </section>
 
@@ -783,6 +802,67 @@ $('#fileImp').onchange = async e=>{
   }
   await pushMeta(); renderAll(); e.target.value='';
   toast(`「${PERIODS[p]}」已匯入 ${list.length} 筆`);
+};
+
+/* ---------- 從 Google 試算表匯入 ---------- */
+function rowsToRoster(rows, p){
+  const list=[];
+  for(const r of rows){
+    const name=String(pick(r,'學生','姓名')||'').trim();
+    const parent=String(pick(r,'家長','稱呼')||'').trim();
+    if(!name && !parent) continue;
+    let days=parseDows(pick(r,'到課星期','到課','星期'));
+    if(!days.length) days=parseDows(pick(r, p==='p9'?'第九節':'晚自習'));
+    list.push({id:uid(), name, parent, contact:String(pick(r,'聯絡','電話','手機')||'').trim(), days});
+  }
+  return list;
+}
+function gsCsvUrl(url, tab){
+  const id=(url.match(/\/spreadsheets\/d\/([a-zA-Z0-9\-_]+)/)||[])[1];
+  if(!id) return null;
+  let u=`https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv`;
+  if(tab) u += '&sheet='+encodeURIComponent(tab);
+  else { const gid=(url.match(/[#&?]gid=(\d+)/)||[])[1]; if(gid) u+='&gid='+gid; }
+  return u;
+}
+async function gsRows(url, tab){
+  const u=gsCsvUrl(url, tab); if(!u) throw new Error('看不出試算表網址，請貼含有 /spreadsheets/d/ 的完整網址');
+  const res=await fetch(u);
+  if(!res.ok) throw new Error(`讀取失敗（HTTP ${res.status}）。請確認共用權限已設為「知道連結的任何人」可檢視。`);
+  const text=await res.text();
+  if(/^\s*</.test(text)) throw new Error('讀到的是登入頁而不是資料，代表這份試算表還沒開放連結檢視。');
+  const wb=XLSX.read(text, {type:'string'});
+  return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:''});
+}
+$('#btnGsheet').onclick = ()=>{
+  const el=$('#gsPanel'); el.hidden=!el.hidden;
+  if(!el.hidden){ $('#gsUrl').value = localStorage.getItem('parentDuty.gs.'+CP) || ''; $('#gsMsg').textContent=''; }
+};
+$('#gsClose').onclick = ()=>{ $('#gsPanel').hidden=true; };
+$('#gsGo').onclick = async ()=>{
+  const p=CP, url=$('#gsUrl').value.trim(), tab=$('#gsTab').value.trim();
+  const msg=$('#gsMsg');
+  if(!url){ msg.textContent='請先貼上試算表網址'; return; }
+  msg.textContent='讀取中…';
+  try{
+    const rows = await gsRows(url, tab);
+    const list = rowsToRoster(rows, p);
+    if(!list.length) throw new Error('讀到資料但沒有可用的列，請確認欄位名稱含「學生姓名」或「家長稱呼」。');
+    if(!confirm(`讀到 ${list.length} 筆，將覆蓋「${PERIODS[p]}」目前的名單（另一個時段不受影響）。確定匯入？`)){ msg.textContent=''; return; }
+    S.rosters[p]=list;
+    // 順便試著抓「不排班日期」分頁，抓不到就略過
+    let addedHol=0;
+    try{
+      const hs = await gsRows(url, '不排班日期');
+      hs.map(r=>({d:xlDate(pick(r,'日期','date')), note:String(pick(r,'說明','備註')||''), scope:'all'}))
+        .filter(h=>h.d)
+        .forEach(h=>{ if(!S.holidays.some(x=>x.d===h.d && (x.scope||'all')===h.scope)){ S.holidays.push(h); addedHol++; } });
+    }catch(e){}
+    localStorage.setItem('parentDuty.gs.'+p, url);
+    await pushMeta(); renderAll();
+    $('#gsPanel').hidden=true;
+    toast(`「${PERIODS[p]}」已匯入 ${list.length} 筆${addedHol?`，另加 ${addedHol} 個不排班日期`:''}`);
+  }catch(e){ msg.textContent='⚠️ '+(e.message||e); }
 };
 
 $('#btnExportRoster').onclick = ()=>{

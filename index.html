@@ -459,7 +459,8 @@ function autoAssign(p, keepLocked=true){
   // 從指標位置開始依座號順序輪，但只在「目前排得相對最少」的一群裡挑。
   // 少了這道門檻，能來的天數多的人會被輪爆（例如週一到週四都能來的家長），
   // 只能來一兩天的人則遠低於應排班數。
-  const TOL = 0.15;
+  const TOL = 0.15;        // 座號輪流時，容許超前應排進度的幅度
+  const TOL_PAIR = 0.2;    // 為了讓家長同一天兼顧兩節，容許插隊的幅度
   const ratio = id => (count[id]||0)/(target[id]||1e-9);
   const byRoundRobin = ids=>{
     const minR = Math.min(...ids.map(ratio));
@@ -484,8 +485,10 @@ function autoAssign(p, keepLocked=true){
       const fams = partnersOn(s.d, p);
       const same = cands.filter(id=>fams.has(famOf[id]));
       if(same.length){
-        const minC = Math.min(...cands.map(id=>count[id]||0));
-        const ok = same.filter(id=>(count[id]||0) <= minC);
+        // 用「實排／應排」的比例判斷，而不是原始次數；
+        // 否則應排班數本來就高的人（能來的天數多）會一直被判定為「還很少」。
+        const minR = Math.min(...cands.map(ratio));
+        const ok = same.filter(id=>ratio(id) <= minR + TOL_PAIR);
         if(ok.length) pick = ok.sort(byFairness)[0];
       }
     }

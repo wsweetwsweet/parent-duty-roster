@@ -456,14 +456,19 @@ function autoAssign(p, keepLocked=true){
     if((count[x]||0)!==(count[y]||0)) return (count[x]||0)-(count[y]||0);
     return posOf[x]-posOf[y];
   };
-  // 從指標位置開始，依座號順序循環找第一個可用的人
+  // 從指標位置開始依座號順序輪，但只在「目前排得相對最少」的一群裡挑。
+  // 少了這道門檻，能來的天數多的人會被輪爆（例如週一到週四都能來的家長），
+  // 只能來一兩天的人則遠低於應排班數。
+  const TOL = 0.15;
+  const ratio = id => (count[id]||0)/(target[id]||1e-9);
   const byRoundRobin = ids=>{
-    const set=new Set(ids);
+    const minR = Math.min(...ids.map(ratio));
+    const pool = new Set(ids.filter(id=>ratio(id) <= minR + TOL));
     for(let i=0;i<seatOrder.length;i++){
       const id = seatOrder[(ptr+i) % seatOrder.length];
-      if(set.has(id)) return id;
+      if(pool.has(id)) return id;
     }
-    return ids[0];
+    return ids.slice().sort(byFairness)[0];
   };
 
   for(const s of todo){

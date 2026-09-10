@@ -72,6 +72,16 @@ ol.steps li{margin-bottom:5px}
 code{background:#eef1f4;padding:1px 5px;border-radius:4px;font-size:12px}
 .tag{display:inline-block;margin:3px 6px 3px 0;background:#eef1f4;padding:3px 8px;border-radius:6px;font-size:13px}
 @media(max-width:640px){ main{padding:0 8px 60px} header{padding:8px} nav{padding:6px 8px 0} }
+@media print{
+  header,nav,.row,.muted,.hint,.card{display:none !important}
+  section{border:0;padding:0}
+  #tab-all{display:block !important}
+  .wrap{max-height:none;overflow:visible;border:0}
+  td.slot select{-webkit-appearance:none;appearance:none;border:0;background:none}
+  .lock{display:none}
+  th{background:#eee !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  td.slot.mine,td.slot[style]{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
 </style>
 </head>
 <body>
@@ -92,6 +102,7 @@ code{background:#eef1f4;padding:1px 5px;border-radius:4px;font-size:12px}
 
 <nav>
   <button data-tab="board" class="active">班表</button>
+  <button data-tab="all">📋 總表</button>
   <button data-tab="roster">名單</button>
   <button data-tab="stats">統計</button>
   <button data-tab="setup">設定</button>
@@ -118,6 +129,29 @@ code{background:#eef1f4;padding:1px 5px;border-radius:4px;font-size:12px}
   </div>
   <div class="muted" style="margin-bottom:8px" id="boardHint"></div>
   <div class="wrap"><table id="boardTbl"></table></div>
+</section>
+
+<!-- ================= 總表 ================= -->
+<section id="tab-all" hidden>
+  <div class="row">
+    <label class="f"><span>月份</span><select id="allMonth"></select></label>
+    <label class="f"><span>檢視</span>
+      <select id="allView">
+        <option value="all">全部</option>
+        <option value="mine">只看有我的日子</option>
+        <option value="empty">只看還沒排滿的</option>
+        <option value="paired">只看同一天兼顧兩節的</option>
+      </select>
+    </label>
+    <span class="grow"></span>
+    <button class="btn sec" id="btnAllExport">匯出總表 Excel</button>
+    <button class="btn sec" id="btnAllPrint">列印</button>
+  </div>
+  <div class="muted" style="margin-bottom:8px">
+    兩個時段並排對照，下拉選單一樣可以直接改。<b style="background:#dcfce7;padding:1px 5px;border-radius:4px">綠底</b>
+    表示當天兩節是同一位家長，<span style="background:var(--mine);padding:1px 5px;border-radius:4px">黃底</span>是你自己的班。
+  </div>
+  <div class="wrap"><table id="allTbl"></table></div>
 </section>
 
 <!-- ================= 名單 ================= -->
@@ -513,7 +547,7 @@ async function connect(cfg, quiet){
       if(suppress) return;
       const next={};
       snap.forEach(doc=>{ const r=doc.data(); next[key(r.d,r.period,r.idx)]={studentId:r.studentId||'', locked:!!r.locked}; });
-      SHIFTS=next; saveLocal(); renderBoard(); renderStats();
+      SHIFTS=next; saveLocal(); renderBoard(); renderAllTable(); renderStats();
     }, e=>toast('讀取班表失敗：'+e.message));
 
     setConn();
@@ -586,6 +620,81 @@ function renderBoard(){
     rows += `<tr><td>${d}</td><td>${DOWN[dow]}</td>${tds}</tr>`;
   }
   t.innerHTML = head + (rows || `<tr><td colspan="${2+n}" style="padding:20px;text-align:center;color:#888">此篩選條件下沒有資料</td></tr>`);
+}
+
+/* ---------- 畫面：總表（兩個時段並排） ---------- */
+function allDates(){
+  const set=new Set();
+  PKEYS.forEach(p=>{
+    if(Number(S.settings.perSlot[p]||0)<=0) return;
+    const [rs,re]=S.settings.range[p];
+    dateRange(rs,re).forEach(d=>{ const w=parseISO(d).getDay(); if(w>=1&&w<=5) set.add(d); });
+  });
+  return [...set].sort();
+}
+function renderAllMonths(){
+  const sel=$('#allMonth'), months=[...new Set(allDates().map(d=>d.slice(0,7)))], prev=sel.value;
+  sel.innerHTML='<option value="">全部月份</option>'+months.map(m=>`<option value="${m}">${m.replace('-','年')}月</option>`).join('');
+  if(months.includes(prev)) sel.value=prev;
+  else { const now=toISO(new Date()).slice(0,7); if(months.includes(now)) sel.value=now; }
+}
+function renderAllTable(){
+  const t=$('#allTbl'), month=$('#allMonth').value, view=$('#allView').value;
+  const dates=allDates().filter(d=>!month||d.startsWith(month));
+  const n={p9:Number(S.settings.perSlot.p9||0), night:Number(S.settings.perSlot.night||0)};
+  if(!dates.length || (n.p9+n.night)===0){
+    t.innerHTML='<tr><td style="padding:24px;text-align:center;color:#888">尚無資料。請先到「設定」填各時段的排班日期，並到「名單」加入家長。</td></tr>';
+    return;
+  }
+  const slotMap={};
+  PKEYS.forEach(p=>{ slotMap[p]={}; buildSlots(p).forEach(s=>(slotMap[p][s.d] ||= {})[s.idx]=s); });
+
+  let head=`<tr><th rowspan="2" style="width:105px">日期</th><th rowspan="2" style="width:36px">週</th>`;
+  if(n.p9)    head+=`<th colspan="${n.p9}" style="text-align:center;background:#e8efff">第九節</th>`;
+  if(n.night) head+=`<th colspan="${n.night}" style="text-align:center;background:#f1e8ff">晚自習</th>`;
+  head+=`<th rowspan="2" style="width:44px">兼顧</th></tr><tr>`;
+  PKEYS.forEach(p=>{ for(let i=0;i<n[p];i++) head+=`<th>${n[p]>1?(i+1):'值班家長'}</th>`; });
+  head+='</tr>';
+
+  let rows='';
+  for(const d of dates){
+    const dow=parseISO(d).getDay();
+    const fams={p9:new Set(), night:new Set()};
+    PKEYS.forEach(p=>{ for(let i=0;i<n[p];i++){
+      const st=stuById(p, SHIFTS[key(d,p,i)]?.studentId); if(st) fams[p].add(famKey(st));
+    }});
+    const both=[...fams.p9].filter(f=>fams.night.has(f));
+    let tds='', mine=false, empty=false;
+    PKEYS.forEach(p=>{
+      for(let i=0;i<n[p];i++){
+        const s=slotMap[p][d]?.[i], k=key(d,p,i), cur=SHIFTS[k]||{};
+        if(!s){
+          const h=S.holidays.find(x=>x.d===d && (x.scope==='all'||x.scope===p));
+          tds+=`<td class="na">${h?esc(h.note||'放假'):'—'}</td>`;
+          continue;
+        }
+        const st=stuById(p,cur.studentId);
+        const isMine=cur.studentId && cur.studentId===ME[p]; if(isMine) mine=true;
+        if(!cur.studentId) empty=true;
+        const isPair=st && both.includes(famKey(st));
+        const opts=['<option value="">— 未排 —</option>'].concat(
+          s.elig.map(id=>{ const x=stuById(p,id); return x?`<option value="${id}"${cur.studentId===id?' selected':''}>${esc(labelOf(x))}</option>`:''; })).join('');
+        tds+=`<td class="slot ${cur.studentId?'filled':'empty'}${isMine?' mine':''}"
+                 ${isPair&&!isMine?'style="background:#dcfce7"':''}>
+              <div style="display:flex;align-items:center;gap:2px">
+                <select data-k="${k}" class="cellSel">${opts}</select>
+                <button class="lock ${cur.locked?'on':''}" data-lock="${k}" title="鎖定/解除">🔒</button>
+              </div></td>`;
+      }
+    });
+    if(view==='mine' && !mine) continue;
+    if(view==='empty' && !empty) continue;
+    if(view==='paired' && !both.length) continue;
+    rows+=`<tr><td>${d}</td><td>${DOWN[dow]}</td>${tds}
+           <td style="text-align:center">${both.length?'✓':''}</td></tr>`;
+  }
+  const cols=3+n.p9+n.night;
+  t.innerHTML=head+(rows||`<tr><td colspan="${cols}" style="padding:20px;text-align:center;color:#888">此篩選條件下沒有資料</td></tr>`);
 }
 
 function renderRoster(){
@@ -676,7 +785,8 @@ function renderSetup(){
 function renderAll(){
   document.body.classList.toggle('night', CP==='night');
   document.querySelectorAll('#perSeg button').forEach(b=>b.classList.toggle('on', b.dataset.p===CP));
-  renderMonths(); renderBoard(); renderRoster(); renderStats(); renderSetup();
+  renderMonths(); renderBoard(); renderAllMonths(); renderAllTable();
+  renderRoster(); renderStats(); renderSetup();
 }
 
 /* ---------- 事件 ---------- */
@@ -684,26 +794,62 @@ document.querySelectorAll('#perSeg button').forEach(b=>b.onclick=()=>{ CP=b.data
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('nav button').forEach(x=>x.classList.remove('active'));
   b.classList.add('active');
-  ['board','roster','stats','setup'].forEach(t=> $('#tab-'+t).hidden = (t!==b.dataset.tab));
+  ['board','all','roster','stats','setup'].forEach(t=> $('#tab-'+t).hidden = (t!==b.dataset.tab));
 });
 $('#meSel').onchange = e => { ME[CP]=e.target.value; saveLocal(); renderBoard(); };
 $('#monthSel').onchange = renderBoard;
 $('#viewSel').onchange = renderBoard;
 
-$('#boardTbl').addEventListener('change', async e=>{
+async function onCellChange(e){
   const sel=e.target.closest('.cellSel'); if(!sel) return;
   const k=sel.dataset.k, [d,p,i]=k.split('|');
   SHIFTS[k]={studentId:sel.value, locked:SHIFTS[k]?.locked||false};
   await pushShifts([{d, period:p, idx:Number(i), v:SHIFTS[k]}]);
-  renderBoard(); renderStats();
-});
-$('#boardTbl').addEventListener('click', async e=>{
+  renderBoard(); renderAllTable(); renderStats();
+}
+async function onLockClick(e){
   const b=e.target.closest('[data-lock]'); if(!b) return;
   const k=b.dataset.lock, [d,p,i]=k.split('|');
   SHIFTS[k]={studentId:SHIFTS[k]?.studentId||'', locked:!(SHIFTS[k]?.locked)};
   await pushShifts([{d, period:p, idx:Number(i), v:SHIFTS[k]}]);
-  renderBoard();
+  renderBoard(); renderAllTable();
+}
+['#boardTbl','#allTbl'].forEach(sel=>{
+  $(sel).addEventListener('change', onCellChange);
+  $(sel).addEventListener('click', onLockClick);
 });
+$('#allMonth').onchange = renderAllTable;
+$('#allView').onchange  = renderAllTable;
+$('#btnAllPrint').onclick = ()=>window.print();
+$('#btnAllExport').onclick = ()=>{
+  const n={p9:Number(S.settings.perSlot.p9||0), night:Number(S.settings.perSlot.night||0)};
+  const hdr=['日期','星期'];
+  PKEYS.forEach(p=>{ for(let i=0;i<n[p];i++) hdr.push(PERIODS[p]+(n[p]>1?' '+(i+1):'')); });
+  hdr.push('同一天兼顧');
+  const aoa=[hdr];
+  const slotMap={}; PKEYS.forEach(p=>{ slotMap[p]={}; buildSlots(p).forEach(s=>(slotMap[p][s.d] ||= {})[s.idx]=s); });
+  allDates().forEach(d=>{
+    const row=[d, DOWN[parseISO(d).getDay()]];
+    const fams={p9:new Set(), night:new Set()};
+    PKEYS.forEach(p=>{ for(let i=0;i<n[p];i++){ const st=stuById(p,SHIFTS[key(d,p,i)]?.studentId); if(st) fams[p].add(famKey(st)); }});
+    PKEYS.forEach(p=>{
+      for(let i=0;i<n[p];i++){
+        if(!slotMap[p][d]?.[i]){
+          const h=S.holidays.find(x=>x.d===d && (x.scope==='all'||x.scope===p));
+          row.push(h?(h.note||'放假'):'—');
+        } else {
+          const st=stuById(p, SHIFTS[key(d,p,i)]?.studentId);
+          row.push(st?labelOf(st):'');
+        }
+      }
+    });
+    row.push([...fams.p9].some(f=>fams.night.has(f))?'✓':'');
+    aoa.push(row);
+  });
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), '值班總表');
+  XLSX.writeFile(wb, `家長值班總表_${toISO(new Date())}.xlsx`);
+};
 
 $('#btnAuto').onclick = async ()=>{
   const p=CP;

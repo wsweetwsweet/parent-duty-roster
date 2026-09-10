@@ -165,22 +165,23 @@ code{background:#eef1f4;padding:1px 5px;border-radius:4px;font-size:12px}
 <!-- ================= 設定 ================= -->
 <section id="tab-setup" hidden>
   <div class="card">
-    <h3>學期日期（兩個時段共用）</h3>
-    <div class="row">
-      <label class="f"><span>開始日期</span><input type="date" id="cfgStart"></label>
-      <label class="f"><span>結束日期</span><input type="date" id="cfgEnd"></label>
-    </div>
-  </div>
-
-  <div class="card">
     <h3 id="cfgPerTitle">時段設定</h3>
+    <div class="row">
+      <label class="f"><span>排班開始日期</span><input type="date" id="cfgStart"></label>
+      <label class="f"><span>排班結束日期</span><input type="date" id="cfgEnd"></label>
+      <button class="btn sec" id="btnCopyRange">從另一個時段複製日期</button>
+    </div>
     <div class="row">
       <label class="f"><span>每天需要幾位家長</span><input type="number" id="cfgN" min="0" max="5" style="width:80px"></label>
       <label class="f"><span>開始時間</span><input type="time" id="cfgTs"></label>
       <label class="f"><span>結束時間</span><input type="time" id="cfgTe"></label>
     </div>
-    <div class="muted" style="margin-bottom:8px">時間只影響匯出到日曆的活動長度，不影響排班。「每天需要」設為 0 等於停用這個時段。</div>
+    <div class="muted" style="margin-bottom:8px">
+      這一整張卡片的設定只套用到目前選的時段，兩個時段各自獨立。
+      時間只影響匯出到日曆的活動長度，不影響排班。「每天需要」設為 0 等於停用這個時段。
+    </div>
     <button class="btn" id="btnSaveCfg">儲存設定</button>
+    <div class="muted" id="cfgOther" style="margin-top:8px"></div>
   </div>
 
   <div class="card">
@@ -246,7 +247,7 @@ const LS_OLD = 'parentDuty.v2';
 const LS_CFG = 'parentDuty.fbcfg';
 
 let S = {
-  settings:{ startDate:'', endDate:'',
+  settings:{ range:{p9:['',''], night:['','']},      // 各時段各自的排班起訖
              perSlot:{p9:1, night:1},
              time:{p9:['16:10','17:00'], night:['18:30','20:30']} },
   rosters:{ p9:[], night:[] },
@@ -280,9 +281,15 @@ function labelOf(s){ return s ? (s.parent || s.name) + (s.parent && s.name ? `�
 
 function normalize(x){
   const s = x?.settings || {};
+  // 舊版是兩個時段共用 startDate/endDate，若存在就沿用到兩邊
+  const legacy = [s.startDate||'', s.endDate||''];
+  const rng = p => {
+    const r = s.range?.[p];
+    return (Array.isArray(r) && (r[0]||r[1])) ? [r[0]||'', r[1]||''] : [...legacy];
+  };
   const out = {
     settings:{
-      startDate:s.startDate||'', endDate:s.endDate||'',
+      range:{ p9:rng('p9'), night:rng('night') },
       perSlot:{p9:Number(s.perSlot?.p9 ?? 1), night:Number(s.perSlot?.night ?? 1)},
       time:{ p9:s.time?.p9 || ['16:10','17:00'], night:s.time?.night || ['18:30','20:30'] }
     },
@@ -312,7 +319,8 @@ function isHoliday(d, p){
 function buildSlots(p){
   const out=[], n=Number(S.settings.perSlot[p]||0);
   if(n<=0) return out;
-  for(const d of dateRange(S.settings.startDate, S.settings.endDate)){
+  const [rs,re] = S.settings.range[p];
+  for(const d of dateRange(rs, re)){
     const dow = parseISO(d).getDay();
     if(dow===0 || dow===6) continue;
     if(isHoliday(d,p)) continue;
@@ -447,7 +455,8 @@ function setConn(){
 
 /* ---------- 畫面 ---------- */
 function renderMonths(){
-  const sel=$('#monthSel'), months=[...new Set(dateRange(S.settings.startDate,S.settings.endDate).map(d=>d.slice(0,7)))];
+  const [rs,re]=S.settings.range[CP];
+  const sel=$('#monthSel'), months=[...new Set(dateRange(rs,re).map(d=>d.slice(0,7)))];
   const prev=sel.value;
   sel.innerHTML = '<option value="">全部月份</option>' + months.map(m=>`<option value="${m}">${m.replace('-','年')}月</option>`).join('');
   if(months.includes(prev)) sel.value=prev;
@@ -559,13 +568,17 @@ function renderStats(){
 }
 
 function renderSetup(){
-  const p=CP;
-  $('#cfgStart').value = S.settings.startDate||'';
-  $('#cfgEnd').value   = S.settings.endDate||'';
+  const p=CP, o=other(p);
+  $('#cfgStart').value = S.settings.range[p][0]||'';
+  $('#cfgEnd').value   = S.settings.range[p][1]||'';
   $('#cfgPerTitle').textContent = `${PERIODS[p]} 設定`;
   $('#cfgN').value  = S.settings.perSlot[p] ?? 1;
   $('#cfgTs').value = S.settings.time[p][0];
   $('#cfgTe').value = S.settings.time[p][1];
+  const [os,oe]=S.settings.range[o];
+  $('#cfgOther').textContent = (os||oe)
+    ? `目前「${PERIODS[o]}」的排班期間是 ${os||'（未設）'} ～ ${oe||'（未設）'}，兩邊互不影響。`
+    : `「${PERIODS[o]}」尚未設定排班期間。`;
   const sc = {all:'兩時段', p9:'僅第九節', night:'僅晚自習'};
   $('#holList').innerHTML = S.holidays.length
     ? S.holidays.slice().sort((a,b)=>a.d<b.d?-1:1).map(h=>
@@ -670,10 +683,17 @@ $('#rosterTbl').addEventListener('click', async e=>{
 
 /* 設定 */
 $('#btnSaveCfg').onclick = async ()=>{
-  S.settings.startDate=$('#cfgStart').value; S.settings.endDate=$('#cfgEnd').value;
-  S.settings.perSlot[CP]=Number($('#cfgN').value||0);
-  S.settings.time[CP]=[$('#cfgTs').value||'16:10', $('#cfgTe').value||'17:00'];
-  await pushMeta(); renderAll(); toast('已儲存');
+  const p=CP;
+  S.settings.range[p]=[$('#cfgStart').value, $('#cfgEnd').value];
+  S.settings.perSlot[p]=Number($('#cfgN').value||0);
+  S.settings.time[p]=[$('#cfgTs').value||'16:10', $('#cfgTe').value||'17:00'];
+  await pushMeta(); renderAll(); toast(`「${PERIODS[p]}」設定已儲存`);
+};
+$('#btnCopyRange').onclick = ()=>{
+  const [os,oe]=S.settings.range[other(CP)];
+  if(!os && !oe){ toast(`「${PERIODS[other(CP)]}」還沒設定日期`); return; }
+  $('#cfgStart').value=os; $('#cfgEnd').value=oe;
+  toast('已帶入，記得按「儲存設定」');
 };
 $('#btnAddHol').onclick = async ()=>{
   const d=$('#holD').value; if(!d) return;
@@ -906,10 +926,10 @@ $('#btnExport').onclick = ()=>{
   setConn();
   if(cfg) await connect(cfg, true);
 
-  if(!S.settings.startDate){
-    const y=new Date().getFullYear();
-    S.settings.startDate=`${y}-09-01`; S.settings.endDate=`${y+1}-01-20`;
-  }
+  const y=new Date().getFullYear();
+  PKEYS.forEach(p=>{
+    if(!S.settings.range[p][0]) S.settings.range[p]=[`${y}-09-01`, `${y+1}-01-20`];
+  });
   renderAll();
 })();
 </script>

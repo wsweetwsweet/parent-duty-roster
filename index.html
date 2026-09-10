@@ -53,6 +53,9 @@ td.slot.mine{background:var(--mine)}
 td.slot.empty select{color:#b91c1c}
 .lock{border:0;background:none;cursor:pointer;font-size:12px;opacity:.3;padding:0 2px}
 .lock.on{opacity:1}
+body.readonly .lock{cursor:not-allowed;opacity:.15}
+body.readonly .lock.on{opacity:.55}
+body.readonly nav button[data-tab="setup"]{opacity:.45}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px}
 .dow{display:inline-flex;gap:2px}
 .dow label{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;
@@ -93,6 +96,7 @@ code{background:#eef1f4;padding:1px 5px;border-radius:4px;font-size:12px}
     <button data-p="night">晚自習</button>
   </span>
   <span id="conn" class="pill">未連線</span>
+  <button class="btn sec" id="btnAdmin" style="padding:5px 12px">🔑 管理員</button>
   <span class="grow"></span>
   <label class="f" style="margin:0">
     <span>我是</span>
@@ -278,6 +282,21 @@ code{background:#eef1f4;padding:1px 5px;border-radius:4px;font-size:12px}
   </div>
 
   <div class="card">
+    <h3>管理員密碼</h3>
+    <div class="muted" style="margin-bottom:8px">
+      設定之後，「設定」分頁、自動排班、清空、鎖定按鈕都需要密碼。家長仍可看班表、匯出，
+      並把自己的班讓給別人或接下空著的班。<br>
+      提醒：密碼是在瀏覽器端檢查的，可以擋住誤觸，但擋不住刻意破解。班級內部使用足夠，
+      不要拿它保護真正機密的資料。
+    </div>
+    <div class="row">
+      <label class="f"><span>新密碼（至少 4 個字）</span><input type="password" id="cfgPw" style="width:200px"></label>
+      <button class="btn" id="btnSetPw">設定／變更密碼</button>
+      <button class="btn sec" id="btnClearPw">取消密碼保護</button>
+    </div>
+  </div>
+
+  <div class="card">
     <h3>危險區</h3>
     <button class="btn danger" id="btnReset">清除本機資料</button>
   </div>
@@ -310,6 +329,7 @@ let S = {
 let SHIFTS = {};                   // "2026-09-11|p9|0" -> {studentId, locked}
 let db = null, mode = 'local';
 let CP = 'p9';                     // 目前檢視的時段
+let isAdmin = false;               // 這台裝置是否已通過管理員密碼
 let ME = {p9:'', night:''};        // 各時段各自記「我是誰」
 let suppress = false;
 
@@ -368,7 +388,8 @@ function normalize(x){
       perSlot:{p9:Number(s.perSlot?.p9 ?? 1), night:Number(s.perSlot?.night ?? 1)},
       time:{ p9:s.time?.p9 || ['16:10','17:00'], night:s.time?.night || ['18:30','20:30'] },
       order: s.order === 'fair' ? 'fair' : 'seat',      // 座號輪流 or 比例公平
-      pair:  s.pair !== false                            // 兩時段盡量同日同一位家長
+      pair:  s.pair !== false,                           // 兩時段盡量同日同一位家長
+      adminHash: s.adminHash || ''                       // 管理員密碼的雜湊（空＝尚未設定）
     },
     rosters:{ p9:[], night:[] },
     holidays:(x?.holidays||[]).map(h=>({d:h.d, note:h.note||'', scope:h.scope||'all'}))
@@ -561,7 +582,9 @@ async function connect(cfg, quiet){
 
     db.collection('board').doc('meta').onSnapshot(snap=>{
       if(suppress || !snap.exists) return;
-      S = normalize(snap.data()); saveLocal(); renderAll();
+      S = normalize(snap.data());
+      isAdmin = !!S.settings.adminHash && localStorage.getItem('parentDuty.admin')===S.settings.adminHash;
+      saveLocal(); renderAll();
     }, e=>toast('讀取設定失敗：'+e.message));
 
     db.collection('shifts').onSnapshot(snap=>{
@@ -824,13 +847,60 @@ function renderSetup(){
 function renderAll(){
   document.body.classList.toggle('night', CP==='night');
   document.querySelectorAll('#perSeg button').forEach(b=>b.classList.toggle('on', b.dataset.p===CP));
+  renderAdmin();
+  if(!canManage() && !$('#tab-setup').hidden){   // 權限被收回時自動跳離設定頁
+    document.querySelectorAll('nav button')[0].click();
+  }
   renderMonths(); renderBoard(); renderAllMonths(); renderAllTable();
   renderRoster(); renderStats(); renderSetup();
 }
 
+/* ---------- 管理員權限 ---------- */
+async function sha256(s){
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+  return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+const hasAdminPw = () => !!S.settings.adminHash;
+// 沒設定密碼時，等於所有人都是管理員（方便第一次使用）
+const canManage  = () => isAdmin || !hasAdminPw();
+function renderAdmin(){
+  const b=$('#btnAdmin');
+  if(!hasAdminPw()){ b.textContent='🔑 設定管理員密碼'; b.className='btn sec'; }
+  else if(isAdmin){ b.textContent='🔓 管理員（登出）'; b.className='btn'; }
+  else { b.textContent='🔑 管理員'; b.className='btn sec'; }
+  const lock = !canManage();
+  $('#btnAuto').disabled = lock;
+  $('#btnClear').disabled = lock;
+  $('#btnAuto').title = lock ? '需要管理員權限' : '';
+  $('#btnClear').title = lock ? '需要管理員權限' : '';
+  document.body.classList.toggle('readonly', lock);
+}
+$('#btnAdmin').onclick = async ()=>{
+  if(isAdmin){ isAdmin=false; localStorage.removeItem('parentDuty.admin'); renderAll(); toast('已登出管理員'); return; }
+  if(!hasAdminPw()){
+    const pw = prompt('尚未設定管理員密碼。請輸入要設定的密碼（設定後，修改設定與自動排班都需要它）：');
+    if(!pw) return;
+    if(pw.length<4){ toast('密碼至少 4 個字'); return; }
+    S.settings.adminHash = await sha256(pw);
+    isAdmin = true; localStorage.setItem('parentDuty.admin', S.settings.adminHash);
+    await pushMeta(); renderAll(); toast('密碼已設定，你現在是管理員');
+    return;
+  }
+  const pw = prompt('請輸入管理員密碼：');
+  if(!pw) return;
+  if(await sha256(pw) === S.settings.adminHash){
+    isAdmin=true; localStorage.setItem('parentDuty.admin', S.settings.adminHash);
+    renderAll(); toast('管理員已登入');
+  } else toast('密碼不正確');
+};
+
 /* ---------- 事件 ---------- */
 document.querySelectorAll('#perSeg button').forEach(b=>b.onclick=()=>{ CP=b.dataset.p; saveLocal(); renderAll(); });
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
+  if(b.dataset.tab==='setup' && !canManage()){
+    toast('設定需要管理員權限，請先點右上角「🔑 管理員」');
+    return;
+  }
   document.querySelectorAll('nav button').forEach(x=>x.classList.remove('active'));
   b.classList.add('active');
   ['board','all','roster','stats','setup'].forEach(t=> $('#tab-'+t).hidden = (t!==b.dataset.tab));
@@ -842,12 +912,21 @@ $('#viewSel').onchange = renderBoard;
 async function onCellChange(e){
   const sel=e.target.closest('.cellSel'); if(!sel) return;
   const k=sel.dataset.k, [d,p,i]=k.split('|');
-  SHIFTS[k]={studentId:sel.value, locked:SHIFTS[k]?.locked||false};
+  const prev = SHIFTS[k]?.studentId||'', next = sel.value;
+  // 家長只能動到自己的班：把自己的班讓出去，或把別人／空白的班接過來
+  if(!canManage()){
+    const me = ME[p];
+    if(SHIFTS[k]?.locked){ sel.value=prev; toast('這一格已鎖定，需要管理員才能修改'); return; }
+    if(!me){ sel.value=prev; toast('請先在右上角選擇「我是」'); return; }
+    if(prev!==me && next!==me){ sel.value=prev; toast('你只能把自己的班讓出去，或把這一格接過來'); return; }
+  }
+  SHIFTS[k]={studentId:next, locked:SHIFTS[k]?.locked||false};
   await pushShifts([{d, period:p, idx:Number(i), v:SHIFTS[k]}]);
   renderBoard(); renderAllTable(); renderStats();
 }
 async function onLockClick(e){
   const b=e.target.closest('[data-lock]'); if(!b) return;
+  if(!canManage()){ toast('鎖定／解除需要管理員權限'); return; }
   const k=b.dataset.lock, [d,p,i]=k.split('|');
   SHIFTS[k]={studentId:SHIFTS[k]?.studentId||'', locked:!(SHIFTS[k]?.locked)};
   await pushShifts([{d, period:p, idx:Number(i), v:SHIFTS[k]}]);
@@ -1008,6 +1087,19 @@ $('#btnUpload').onclick = async ()=>{
   await pushMeta();
   await pushShifts(Object.entries(SHIFTS).map(([k,v])=>{ const [d,p,i]=k.split('|'); return {d,period:p,idx:Number(i),v}; }));
   toast('已上傳到雲端');
+};
+$('#btnSetPw').onclick = async ()=>{
+  const pw=$('#cfgPw').value.trim();
+  if(pw.length<4){ toast('密碼至少 4 個字'); return; }
+  S.settings.adminHash = await sha256(pw);
+  isAdmin=true; localStorage.setItem('parentDuty.admin', S.settings.adminHash);
+  $('#cfgPw').value='';
+  await pushMeta(); renderAll(); toast('密碼已更新');
+};
+$('#btnClearPw').onclick = async ()=>{
+  if(!confirm('取消密碼保護？之後任何人都能修改設定與自動排班。')) return;
+  S.settings.adminHash=''; isAdmin=false; localStorage.removeItem('parentDuty.admin');
+  await pushMeta(); renderAll(); toast('已取消密碼保護');
 };
 $('#btnReset').onclick = ()=>{
   if(!confirm('清除本機資料？（雲端資料不受影響）')) return;
@@ -1209,6 +1301,8 @@ $('#btnExport').onclick = ()=>{
 
   setConn();
   if(cfg) await connect(cfg, true);
+  // 這台裝置之前登入過管理員？（比對雜湊，密碼改過就自動失效）
+  isAdmin = !!S.settings.adminHash && localStorage.getItem('parentDuty.admin')===S.settings.adminHash;
 
   const y=new Date().getFullYear();
   PKEYS.forEach(p=>{

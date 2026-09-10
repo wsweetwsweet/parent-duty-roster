@@ -473,10 +473,16 @@ function autoAssign(p, keepLocked=true){
 
     let pick = null;
     if(usePair){
-      // 優先找「另一個時段當天已排到的同一家人」，讓家長一趟顧兩節
+      // 優先找「另一個時段當天已排到的同一家人」，讓家長一趟顧兩節。
+      // 但只有在那個人目前排得最少時才讓他插隊，否則有參加兩個時段的家庭會被排爆、
+      // 沒參加另一時段的家庭則永遠輪不到。公平優先，兼顧當加分。
       const fams = partnersOn(s.d, p);
       const same = cands.filter(id=>fams.has(famOf[id]));
-      if(same.length) pick = same.sort(byFairness)[0];
+      if(same.length){
+        const minC = Math.min(...cands.map(id=>count[id]||0));
+        const ok = same.filter(id=>(count[id]||0) <= minC);
+        if(ok.length) pick = ok.sort(byFairness)[0];
+      }
     }
     if(!pick) pick = useSeat ? byRoundRobin(cands) : cands.slice().sort(byFairness)[0];
 
@@ -741,10 +747,10 @@ function renderStats(){
     `「${PERIODS[p]}」的公平度。應排班數＝依各家庭小孩在這個時段可值的日子數按比例分配；兩個時段各自獨立計算。`;
   if(!slots.length){ t.innerHTML=`<tr><td style="padding:20px;color:#888">「${PERIODS[p]}」尚無資料</td></tr>`; return; }
   const {target}=computeTargets(slots);
-  const count={}; roster(p).forEach(s=>count[s.id]=0);
+  const count={}, fixed={}; roster(p).forEach(s=>{count[s.id]=0; fixed[s.id]=0;});
   Object.entries(SHIFTS).forEach(([k,v])=>{
     if(k.split('|')[1]!==p) return;
-    if(v.studentId && count[v.studentId]!==undefined) count[v.studentId]++;
+    if(v.studentId && count[v.studentId]!==undefined){ count[v.studentId]++; if(v.locked) fixed[v.studentId]++; }
   });
   // 有多少格與另一個時段當天是同一位家長
   let paired=0, filled=0;
@@ -758,19 +764,21 @@ function renderStats(){
   }
   const maxV = Math.max(1, ...Object.values(count), ...Object.values(target));
   const list = roster(p).slice().sort((a,b)=>seatOf(a)-seatOf(b));
+  const totFixed = Object.values(fixed).reduce((a,b)=>a+b,0);
   t.innerHTML = `<tr><th>家長</th><th>學生</th><th style="width:90px">可值日數</th><th style="width:90px">應排班數</th>
-    <th style="width:90px">實排班數</th><th style="width:80px">差距</th><th>分佈</th></tr>` +
+    <th style="width:90px">實排班數</th><th style="width:90px">其中已鎖定</th><th style="width:80px">差距</th><th>分佈</th></tr>` +
     list.map(s=>{
       const tg=target[s.id]||0, ct=count[s.id]||0, diff=ct-tg;
       const elig=slots.filter(x=>x.elig.includes(s.id)).length;
       const color = Math.abs(diff)<=1 ? 'var(--ok)' : (diff>0?'var(--danger)':'var(--warn)');
       return `<tr><td>${esc(s.parent||'—')}</td><td>${esc(s.name)}</td><td>${elig}</td>
         <td>${tg.toFixed(1)}</td><td><b>${ct}</b></td>
+        <td style="color:var(--muted)">${fixed[s.id]||0}</td>
         <td style="color:${color}">${diff>0?'+':''}${diff.toFixed(1)}</td>
         <td><div class="bar"><i style="width:${Math.round(ct/maxV*100)}%"></i></div></td></tr>`;
     }).join('') +
     `<tr><th>合計</th><th></th><th></th><th>${slots.length}</th>
-     <th>${Object.values(count).reduce((a,b)=>a+b,0)}</th><th></th><th></th></tr>`;
+     <th>${Object.values(count).reduce((a,b)=>a+b,0)}</th><th>${totFixed}</th><th></th><th></th></tr>`;
 }
 
 function renderSetup(){

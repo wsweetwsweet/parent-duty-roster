@@ -434,7 +434,14 @@ function autoAssign(p, keepLocked=true){
 
   const seatOrder = list.slice().sort((a,b)=> seatOf(a)-seatOf(b) || (a.name<b.name?-1:1)).map(s=>s.id);
   const posOf = {}; seatOrder.forEach((id,i)=>posOf[id]=i);
-  let ptr = 0;                                   // 座號輪流的指標
+  // 座號輪流的指標：若前面已有排好（鎖定）的班，就從最後那一天的下一位接著輪
+  let ptr = 0;
+  {
+    const done = slots.filter(s=>result[key(s.d,p,s.idx)]?.studentId);
+    const last = done.length ? done[done.length-1] : null;
+    const lastId = last && result[key(last.d,p,last.idx)].studentId;
+    if(lastId && posOf[lastId]!==undefined) ptr = (posOf[lastId]+1) % seatOrder.length;
+  }
   const usePair  = S.settings.pair !== false;
   const useSeat  = S.settings.order !== 'fair';
   const famOf = {}; list.forEach(s=>famOf[s.id]=famKey(s));
@@ -562,6 +569,17 @@ function setConn(){
 }
 
 /* ---------- 畫面 ---------- */
+// 下拉選單：可選的人＋目前已排的那位（就算他當天本來不在名單裡，例如導師或臨時代班）
+function cellOptions(p, elig, curId){
+  const ids = elig.slice();
+  if(curId && !ids.includes(curId)) ids.unshift(curId);
+  return ['<option value="">— 未排 —</option>'].concat(ids.map(id=>{
+    const st=stuById(p,id); if(!st) return '';
+    const extra = elig.includes(id) ? '' : '（非固定到課日）';
+    return `<option value="${id}"${curId===id?' selected':''}>${esc(labelOf(st))}${extra}</option>`;
+  })).join('');
+}
+
 function renderMonths(){
   const [rs,re]=S.settings.range[CP];
   const sel=$('#monthSel'), months=[...new Set(dateRange(rs,re).map(d=>d.slice(0,7)))];
@@ -604,11 +622,7 @@ function renderBoard(){
       const mine = cur.studentId && cur.studentId===me;
       if(mine) anyMine=true;
       if(!cur.studentId) anyEmpty=true;
-      const opts = ['<option value="">— 未排 —</option>'].concat(
-        (s?.elig||[]).map(id=>{
-          const st=stuById(p,id); if(!st) return '';
-          return `<option value="${id}"${cur.studentId===id?' selected':''}>${esc(labelOf(st))}</option>`;
-        })).join('');
+      const opts = cellOptions(p, s?.elig||[], cur.studentId);
       tds += `<td class="slot ${cur.studentId?'filled':'empty'}${mine?' mine':''}">
           <div style="display:flex;align-items:center;gap:2px">
             <select data-k="${k}" class="cellSel">${opts}</select>
@@ -677,8 +691,7 @@ function renderAllTable(){
         const isMine=cur.studentId && cur.studentId===ME[p]; if(isMine) mine=true;
         if(!cur.studentId) empty=true;
         const isPair=st && both.includes(famKey(st));
-        const opts=['<option value="">— 未排 —</option>'].concat(
-          s.elig.map(id=>{ const x=stuById(p,id); return x?`<option value="${id}"${cur.studentId===id?' selected':''}>${esc(labelOf(x))}</option>`:''; })).join('');
+        const opts=cellOptions(p, s.elig, cur.studentId);
         tds+=`<td class="slot ${cur.studentId?'filled':'empty'}${isMine?' mine':''}"
                  ${isPair&&!isMine?'style="background:#dcfce7"':''}>
               <div style="display:flex;align-items:center;gap:2px">

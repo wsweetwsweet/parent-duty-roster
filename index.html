@@ -185,6 +185,26 @@ code{background:#eef1f4;padding:1px 5px;border-radius:4px;font-size:12px}
   </div>
 
   <div class="card">
+    <h3>自動排班規則（兩個時段共用）</h3>
+    <label style="display:block;margin-bottom:8px;cursor:pointer">
+      <input type="checkbox" id="cfgSeat"> 依<b>座號順序輪流</b>
+      <div class="muted" style="margin-left:22px">
+        依名單姓名開頭的數字（例：<code>5唯菱</code>、<code>8 陳楠葳</code>）由小到大依序輪，輪過一圈再從頭開始；
+        當天不能來的人自動跳過，下一輪再排到。取消勾選則改用「誰排得比較少就先排」的公平模式。
+      </div>
+    </label>
+    <label style="display:block;cursor:pointer">
+      <input type="checkbox" id="cfgPair"> 盡量讓<b>同一位家長同一天兼顧兩個時段</b>
+      <div class="muted" style="margin-left:22px">
+        排晚自習時，優先挑當天第九節已經排到的那位家長，家長跑一趟就好。
+        兩個時段靠姓名開頭的座號配對，所以兩份名單的座號要一致。
+        建議先排第九節、再排晚自習。找不到合適人選時會自動退回一般規則。
+      </div>
+    </label>
+    <div class="muted" style="margin-top:10px">改完直接生效，下次按「自動排班」就會套用（會自動儲存）。</div>
+  </div>
+
+  <div class="card">
     <h3>不排班的日期（假日／段考／不上課的日子）</h3>
     <div class="row">
       <label class="f"><span>日期</span><input type="date" id="holD"></label>
@@ -277,6 +297,27 @@ function dateRange(a,b){
 }
 const roster = p => (S.rosters[p] ||= []);
 function stuById(p,id){ return roster(p).find(s=>s.id===id); }
+// 從「5唯菱」「8 陳楠葳」這種寫法取出座號；沒有數字就回傳很大的數，排到最後
+function seatOf(s){
+  const m = String(s?.name||s?.parent||'').match(/\d+/);
+  return m ? Number(m[0]) : 9999;
+}
+// 用來判斷兩個時段裡的「同一家人」：優先比座號，沒有座號就比去掉空白的姓名
+function famKey(s){
+  const seat = seatOf(s);
+  return seat<9999 ? 'n'+seat : 't'+String(s?.name||s?.parent||'').replace(/\s/g,'');
+}
+// 某天在另一個時段已經排到的家庭
+function partnersOn(d, p){
+  const o = other(p), set = new Set();
+  const n = Number(S.settings.perSlot[o]||0);
+  for(let i=0;i<n;i++){
+    const v = SHIFTS[key(d,o,i)];
+    const st = v?.studentId && stuById(o, v.studentId);
+    if(st) set.add(famKey(st));
+  }
+  return set;
+}
 function labelOf(s){ return s ? (s.parent || s.name) + (s.parent && s.name ? `（${s.name}家長）` : '') : ''; }
 
 function normalize(x){
@@ -291,7 +332,9 @@ function normalize(x){
     settings:{
       range:{ p9:rng('p9'), night:rng('night') },
       perSlot:{p9:Number(s.perSlot?.p9 ?? 1), night:Number(s.perSlot?.night ?? 1)},
-      time:{ p9:s.time?.p9 || ['16:10','17:00'], night:s.time?.night || ['18:30','20:30'] }
+      time:{ p9:s.time?.p9 || ['16:10','17:00'], night:s.time?.night || ['18:30','20:30'] },
+      order: s.order === 'fair' ? 'fair' : 'seat',      // 座號輪流 or 比例公平
+      pair:  s.pair !== false                            // 兩時段盡量同日同一位家長
     },
     rosters:{ p9:[], night:[] },
     holidays:(x?.holidays||[]).map(h=>({d:h.d, note:h.note||'', scope:h.scope||'all'}))
@@ -342,8 +385,10 @@ function autoAssign(p, keepLocked=true){
   if(!slots.length) return null;
   const {target} = computeTargets(slots);
   const count={}, perDay={}, result={};
-  roster(p).forEach(s=>count[s.id]=0);
+  const list = roster(p);
+  list.forEach(s=>count[s.id]=0);
 
+  // 保留已鎖定的格子
   for(const s of slots){
     const k = key(s.d,p,s.idx), cur = SHIFTS[k];
     if(keepLocked && cur && cur.locked && cur.studentId && stuById(p,cur.studentId)){
@@ -352,23 +397,52 @@ function autoAssign(p, keepLocked=true){
       (perDay[s.d] ||= new Set()).add(cur.studentId);
     }
   }
-  // 先處理「可選家長最少」的時段，避免稀缺日期最後沒人可排
+
+  const seatOrder = list.slice().sort((a,b)=> seatOf(a)-seatOf(b) || (a.name<b.name?-1:1)).map(s=>s.id);
+  const posOf = {}; seatOrder.forEach((id,i)=>posOf[id]=i);
+  let ptr = 0;                                   // 座號輪流的指標
+  const usePair  = S.settings.pair !== false;
+  const useSeat  = S.settings.order !== 'fair';
+  const famOf = {}; list.forEach(s=>famOf[s.id]=famKey(s));
+
+  // 依日期順序排（座號輪流需要照時間走）
   const todo = slots.filter(s=>!result[key(s.d,p,s.idx)])
-                    .sort((a,b)=> a.elig.length-b.elig.length || (a.d<b.d?-1:a.d>b.d?1:0) || a.idx-b.idx);
+                    .sort((a,b)=> (a.d<b.d?-1:a.d>b.d?1:0) || a.idx-b.idx);
+
+  const byFairness = (x,y)=>{
+    const rx=(count[x]||0)/(target[x]||1e-9), ry=(count[y]||0)/(target[y]||1e-9);
+    if(Math.abs(rx-ry)>1e-9) return rx-ry;
+    if((count[x]||0)!==(count[y]||0)) return (count[x]||0)-(count[y]||0);
+    return posOf[x]-posOf[y];
+  };
+  // 從指標位置開始，依座號順序循環找第一個可用的人
+  const byRoundRobin = ids=>{
+    const set=new Set(ids);
+    for(let i=0;i<seatOrder.length;i++){
+      const id = seatOrder[(ptr+i) % seatOrder.length];
+      if(set.has(id)) return id;
+    }
+    return ids[0];
+  };
+
   for(const s of todo){
     const day = (perDay[s.d] ||= new Set());
     let cands = s.elig.filter(id=>!day.has(id));
-    if(!cands.length) cands = s.elig.slice();
-    cands.sort((x,y)=>{
-      const rx = (count[x]||0)/(target[x]||1e-9), ry = (count[y]||0)/(target[y]||1e-9);
-      if(Math.abs(rx-ry)>1e-9) return rx-ry;
-      if((count[x]||0)!==(count[y]||0)) return (count[x]||0)-(count[y]||0);
-      return x<y?-1:1;
-    });
-    const pick = cands[0];
+    if(!cands.length) cands = s.elig.slice();     // 同日不重複排不到就放寬
+
+    let pick = null;
+    if(usePair){
+      // 優先找「另一個時段當天已排到的同一家人」，讓家長一趟顧兩節
+      const fams = partnersOn(s.d, p);
+      const same = cands.filter(id=>fams.has(famOf[id]));
+      if(same.length) pick = same.sort(byFairness)[0];
+    }
+    if(!pick) pick = useSeat ? byRoundRobin(cands) : cands.slice().sort(byFairness)[0];
+
     result[key(s.d,p,s.idx)] = {studentId:pick, locked:false};
     count[pick]=(count[pick]||0)+1;
     day.add(pick);
+    if(useSeat) ptr = (posOf[pick]+1) % seatOrder.length;
   }
   return {result, target, count, slots};
 }
@@ -550,8 +624,18 @@ function renderStats(){
     if(k.split('|')[1]!==p) return;
     if(v.studentId && count[v.studentId]!==undefined) count[v.studentId]++;
   });
+  // 有多少格與另一個時段當天是同一位家長
+  let paired=0, filled=0;
+  slots.forEach(s=>{
+    const v=SHIFTS[key(s.d,p,s.idx)]; const st=v?.studentId && stuById(p,v.studentId);
+    if(!st) return; filled++;
+    if(partnersOn(s.d,p).has(famKey(st))) paired++;
+  });
+  if(filled && Number(S.settings.perSlot[other(p)]||0)>0){
+    $('#statsHint').textContent += ` 目前有 ${paired}/${filled} 格與「${PERIODS[other(p)]}」當天是同一位家長（${Math.round(paired/filled*100)}%）。`;
+  }
   const maxV = Math.max(1, ...Object.values(count), ...Object.values(target));
-  const list = roster(p).slice().sort((a,b)=>(count[b.id]||0)-(count[a.id]||0));
+  const list = roster(p).slice().sort((a,b)=>seatOf(a)-seatOf(b));
   t.innerHTML = `<tr><th>家長</th><th>學生</th><th style="width:90px">可值日數</th><th style="width:90px">應排班數</th>
     <th style="width:90px">實排班數</th><th style="width:80px">差距</th><th>分佈</th></tr>` +
     list.map(s=>{
@@ -575,6 +659,8 @@ function renderSetup(){
   $('#cfgN').value  = S.settings.perSlot[p] ?? 1;
   $('#cfgTs').value = S.settings.time[p][0];
   $('#cfgTe').value = S.settings.time[p][1];
+  $('#cfgSeat').checked = S.settings.order !== 'fair';
+  $('#cfgPair').checked = S.settings.pair !== false;
   const [os,oe]=S.settings.range[o];
   $('#cfgOther').textContent = (os||oe)
     ? `目前「${PERIODS[o]}」的排班期間是 ${os||'（未設）'} ～ ${oe||'（未設）'}，兩邊互不影響。`
@@ -689,6 +775,8 @@ $('#btnSaveCfg').onclick = async ()=>{
   S.settings.time[p]=[$('#cfgTs').value||'16:10', $('#cfgTe').value||'17:00'];
   await pushMeta(); renderAll(); toast(`「${PERIODS[p]}」設定已儲存`);
 };
+$('#cfgSeat').onchange = async e=>{ S.settings.order = e.target.checked ? 'seat' : 'fair'; await pushMeta(); toast('已儲存'); };
+$('#cfgPair').onchange = async e=>{ S.settings.pair = e.target.checked; await pushMeta(); toast('已儲存'); };
 $('#btnCopyRange').onclick = ()=>{
   const [os,oe]=S.settings.range[other(CP)];
   if(!os && !oe){ toast(`「${PERIODS[other(CP)]}」還沒設定日期`); return; }

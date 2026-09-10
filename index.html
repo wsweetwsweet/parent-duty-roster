@@ -755,11 +755,21 @@ function renderStats(){
     `「${PERIODS[p]}」的公平度。應排班數＝依各家庭小孩在這個時段可值的日子數按比例分配；兩個時段各自獨立計算。`;
   if(!slots.length){ t.innerHTML=`<tr><td style="padding:20px;color:#888">「${PERIODS[p]}」尚無資料</td></tr>`; return; }
   const {target}=computeTargets(slots);
+  // 只統計「目前排班期間內、且不是假日」的格子。
+  // 縮短學期或補加假日之後，舊資料會留在班表上；那些格子已經失效，不該算進實排班數。
+  const valid = new Set(slots.map(s=>key(s.d,p,s.idx)));
   const count={}, fixed={}; roster(p).forEach(s=>{count[s.id]=0; fixed[s.id]=0;});
+  let stale=0;
   Object.entries(SHIFTS).forEach(([k,v])=>{
-    if(k.split('|')[1]!==p) return;
-    if(v.studentId && count[v.studentId]!==undefined){ count[v.studentId]++; if(v.locked) fixed[v.studentId]++; }
+    if(k.split('|')[1]!==p || !v.studentId) return;
+    if(!valid.has(k)){ stale++; return; }
+    if(count[v.studentId]!==undefined){ count[v.studentId]++; if(v.locked) fixed[v.studentId]++; }
   });
+  if(stale){
+    $('#statsHint').innerHTML += ` <span style="color:var(--warn)">⚠️ 另有 ${stale} 格排在已失效的日期上
+      （改過學期日期或新增假日之後留下的舊資料），未列入統計。</span>
+      <button class="btn sec" id="btnStale" style="padding:4px 10px;margin-left:6px">清除這些舊資料</button>`;
+  }
   // 有多少格與另一個時段當天是同一位家長
   let paired=0, filled=0;
   slots.forEach(s=>{
@@ -846,6 +856,17 @@ async function onLockClick(e){
 ['#boardTbl','#allTbl'].forEach(sel=>{
   $(sel).addEventListener('change', onCellChange);
   $(sel).addEventListener('click', onLockClick);
+});
+// 清除排在已失效日期上的舊班表資料
+$('#statsTbl').parentElement.parentElement.addEventListener('click', async e=>{
+  if(e.target.id!=='btnStale') return;
+  const valid=new Set(); PKEYS.forEach(pp=>buildSlots(pp).forEach(s=>valid.add(key(s.d,pp,s.idx))));
+  const dead=Object.entries(SHIFTS).filter(([k,v])=>v.studentId && !valid.has(k));
+  if(!dead.length){ toast('沒有需要清除的資料'); return; }
+  if(!confirm(`將清除 ${dead.length} 格排在已失效日期上的舊資料（兩個時段一起清）。確定嗎？`)) return;
+  const list=dead.map(([k])=>{ const [d,p,i]=k.split('|'); SHIFTS[k]={studentId:'',locked:false};
+                               return {d,period:p,idx:Number(i),v:SHIFTS[k]}; });
+  await pushShifts(list); renderAll(); toast(`已清除 ${dead.length} 格`);
 });
 $('#allMonth').onchange = renderAllTable;
 $('#allView').onchange  = renderAllTable;

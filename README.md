@@ -1,13 +1,16 @@
 # 家長值班排班系統
 
-給班級家長輪流值班用的網頁系統。單一 HTML 檔，可直接用 GitHub Pages 發佈，家長開網址就能用。
+給班級家長輪流值班用的網頁系統。單一 HTML 檔，用 GitHub Pages 發佈，家長開網址就能用；後端接 Google Firebase，多人即時同步。
+
+線上版本：https://wsweetwsweet.github.io/parent-duty-roster/
 
 ## 功能
 
 - **班表**：週一至週五，每天分「第九節」與「晚自習」兩個時段；可設定每個時段需要幾位家長。
-- **手動修改**：每一格都是下拉選單，點了就改，並即時同步給其他家長。可對單格上鎖（🔒），自動排班不會更動已鎖定的格子。
+- **手動修改**：每一格都是下拉選單，點了就改，其他家長畫面即時更新。可對單格上鎖（🔒），自動排班不會更動已鎖定的格子。
 - **自動排班**：依各家庭小孩的到課時段數「按比例」分配值班次數，且只會排在小孩實際有到課的星期。同一天盡量不排同一位家長兩次。
 - **Excel 匯入／匯出**：下載範本 → 填名單 → 匯入；也可匯出班表與統計。
+- **匯出到 Google 日曆**：家長選好「我是」後按一鍵，下載 .ics 檔匯入 Google 日曆，值班前兩小時自動提醒。
 - **統計**：每位家長的「應排班數 vs 實排班數」，一眼看出誰多誰少。
 - **假日管理**：段考、國定假日、不上第九節的日子可排除。
 
@@ -17,22 +20,37 @@
 
 ## 多人即時共用（正式使用）
 
-需要一個免費的 [Supabase](https://supabase.com) 專案當資料庫。
+需要一個免費的 Firebase 專案。全程在網頁上點，不用綁信用卡。
 
-1. 註冊 Supabase → **New project**（免費方案即可）。
-2. 左側 **SQL Editor** → **New query** → 貼上 `supabase-schema.sql` 全部內容 → **Run**。
-3. 左側 **Project Settings → API**，複製兩個值：
-   - **Project URL**（形如 `https://xxxx.supabase.co`）
-   - **anon public** key
-4. 打開網頁 → **設定** 分頁 → 貼上這兩個值 → **儲存並連線**。
-5. 按 **複製分享連結**，把連結貼到家長群組。所有人打開就是同一份班表，改動即時同步。
+1. 到 [Firebase 主控台](https://console.firebase.google.com) 用 Google 帳號 **新增專案**（Google Analytics 可以關掉）。
+2. 左側 **建構 → Firestore Database → 建立資料庫**。位置選 `asia-east1`（台灣最近），安全性規則先選「以測試模式啟動」。
+3. 左上齒輪 **專案設定 → 一般 → 您的應用程式**，點網頁圖示 `</>` 註冊一個網頁應用程式（不用勾 Hosting）。註冊後會顯示一段：
 
-> 想讓家長完全不用填金鑰，可以直接改 `index.html` 最上方的
-> `const BUILTIN_URL = "";` 與 `const BUILTIN_KEY = "";` 兩行，填好後重新發佈。
+   ```js
+   const firebaseConfig = {
+     apiKey: "AIza...",
+     authDomain: "your-project.firebaseapp.com",
+     projectId: "your-project",
+     ...
+   };
+   ```
+
+4. 打開網頁 → **設定** 分頁 → 把整段貼進「連線設定」的框框 → **儲存並連線**。標題旁應該變成「☁️ Firebase 即時同步」。
+5. 回到 Firebase 的 **Firestore Database → 規則**，把本 repo 的 `firestore.rules` 內容全部貼上 → **發布**。（測試模式 30 天後會自動封鎖讀寫，這一步務必做。）
+6. 按網頁上的 **複製分享連結**，貼到家長群組。所有人打開就是同一份班表。
+
+> 想讓家長完全不用碰設定，可以直接改 `index.html` 最上方的 `const BUILTIN_CFG = null;`，
+> 換成你的 config 物件後重新發佈，之後開網址就自動連線。
+
+### 免費額度
+
+Firebase Spark 方案：Firestore 每天 5 萬次讀取、2 萬次寫入、1 GB 儲存，不需信用卡。一個班級的用量遠低於此。超過額度是暫停服務而非自動扣款。
 
 ### 安全性說明
 
-系統設計為「不用登入，進來選自己的名字」，因此使用 anon key 直接讀寫，**任何拿到網址的人都能修改班表**。班級內部使用通常沒問題；若需要更嚴格的權限，請改用 Supabase Auth 並收緊 RLS policy。anon key 本來就是設計為可公開的前端金鑰，但仍請不要把連結貼到公開網路上。
+系統設計為「不用登入，進來選自己的名字」，`firestore.rules` 因此開放讀寫，**任何拿到網址的人都能修改班表**。班級內部使用通常沒問題，但請不要把連結貼到公開網路上。
+
+Firebase 的 apiKey 本來就是設計為可公開的前端識別碼，不是密碼，出現在網頁原始碼中是正常的；真正的防線是 Firestore 規則。若需要更嚴格的權限，可啟用 Firebase Authentication，並把規則中的 `if true` 改成 `if request.auth != null`。
 
 ## 發佈到 GitHub Pages
 
@@ -58,7 +76,10 @@ Repo → **Settings → Pages** → Source 選 `Deploy from a branch` → Branch
 3. 應排班數 ＝ 總時段數 × (該家長可值時段數 ÷ 全班可值時段數總和)。
 4. 從「可選家長最少」的時段開始排，每次挑目前「實排／應排」比例最低的家長，避免稀缺時段最後沒人可用。
 
+實測（28 位家長、一學期 198 個時段）：全部排滿、0 筆排到小孩沒到課的星期、0 天同一位家長被排兩次、應排與實排的最大偏差 1.45 班。
+
 ## 檔案
 
-- `index.html` — 整個系統（單一檔案，含 CDN 引用 SheetJS 與 Supabase JS）
-- `supabase-schema.sql` — 資料庫初始化 SQL
+- `index.html` — 整個系統（單一檔案，CDN 引用 SheetJS 與 Firebase SDK）
+- `firestore.rules` — Firestore 安全規則
+- `supabase-schema.sql` — 舊版 Supabase 後端的建表 SQL（改用 Firebase 後不需要，保留備查）

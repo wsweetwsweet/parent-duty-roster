@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>家長值班排班系統</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <style>
 :root{
   --bg:#f6f7f9; --card:#fff; --line:#e3e6ea; --text:#1c2024; --muted:#6b7280;
-  --accent:#2563eb; --accent-soft:#e8efff; --warn:#b45309; --danger:#dc2626;
-  --ok:#15803d; --mine:#fff7cc;
+  --accent:#2563eb; --warn:#b45309; --danger:#dc2626; --ok:#15803d; --mine:#fff7cc;
 }
 *{box-sizing:border-box}
 body{margin:0;font-family:system-ui,-apple-system,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
@@ -36,11 +36,11 @@ button.btn.sec{background:#eef1f4;color:var(--text)}
 button.btn.danger{background:#fee2e2;color:var(--danger)}
 button.btn:disabled{opacity:.45;cursor:not-allowed}
 input,select,textarea{font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:#fff;color:inherit}
+textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
 label.f{display:inline-flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);margin:0 12px 10px 0}
 table{border-collapse:collapse;width:100%;font-size:14px}
 th,td{border:1px solid var(--line);padding:5px 7px;text-align:left;vertical-align:middle}
 th{background:#f2f4f7;font-weight:600;font-size:13px;position:sticky;top:0}
-tr.weekend td{background:#fafafa}
 td.slot{padding:3px}
 td.slot select{width:100%;border:0;background:transparent;padding:4px}
 td.slot.filled{background:#f3f8ff}
@@ -54,7 +54,6 @@ td.na{background:#f7f7f8;color:#bbb;text-align:center;font-size:12px}
 .dow label{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;
            border:1px solid var(--line);border-radius:6px;cursor:pointer;font-size:12px;background:#fff}
 .dow input{display:none}
-.dow input:checked + span{}
 .dow label:has(input:checked){background:var(--accent);color:#fff;border-color:var(--accent)}
 .muted{color:var(--muted);font-size:13px}
 .wrap{overflow:auto;max-height:70vh;border:1px solid var(--line);border-radius:8px}
@@ -64,6 +63,8 @@ td.na{background:#f7f7f8;color:#bbb;text-align:center;font-size:12px}
        padding:9px 16px;border-radius:8px;font-size:14px;opacity:0;transition:.25s;pointer-events:none;z-index:99}
 .toast.show{opacity:1}
 .hint{background:#fffbea;border:1px solid #fde68a;color:#7c5a00;padding:10px 12px;border-radius:8px;font-size:13px;margin-bottom:12px}
+ol.steps{padding-left:20px;font-size:13px;color:#444;margin:0 0 10px}
+ol.steps li{margin-bottom:5px}
 code{background:#eef1f4;padding:1px 5px;border-radius:4px;font-size:12px}
 @media(max-width:640px){ main{padding:0 8px 60px} header{padding:8px} nav{padding:6px 8px 0} }
 </style>
@@ -102,8 +103,9 @@ code{background:#eef1f4;padding:1px 5px;border-radius:4px;font-size:12px}
     </label>
     <span class="grow"></span>
     <button class="btn" id="btnAuto">⚡ 自動排班</button>
-    <button class="btn sec" id="btnClear">清空未鎖定</button>
+    <button class="btn sec" id="btnIcsMine">📅 匯出我的值班到日曆</button>
     <button class="btn sec" id="btnExport">匯出 Excel</button>
+    <button class="btn sec" id="btnClear">清空未鎖定</button>
   </div>
   <div class="muted" style="margin-bottom:8px">
     點下拉選單即可手動指定家長；🔒 表示鎖定，自動排班不會更動。只有「小孩該星期幾有到課」的家長會出現在選項中。
@@ -144,9 +146,18 @@ code{background:#eef1f4;padding:1px 5px;border-radius:4px;font-size:12px}
     <div class="row">
       <label class="f"><span>開始日期</span><input type="date" id="cfgStart"></label>
       <label class="f"><span>結束日期</span><input type="date" id="cfgEnd"></label>
-      <label class="f"><span>第九節每天需要</span><input type="number" id="cfgN9" min="0" max="5" style="width:70px"></label>
-      <label class="f"><span>晚自習每天需要</span><input type="number" id="cfgNn" min="0" max="5" style="width:70px"></label>
     </div>
+    <div class="row">
+      <label class="f"><span>第九節 每天需要</span><input type="number" id="cfgN9" min="0" max="5" style="width:70px"></label>
+      <label class="f"><span>第九節 開始</span><input type="time" id="cfgT9s"></label>
+      <label class="f"><span>第九節 結束</span><input type="time" id="cfgT9e"></label>
+    </div>
+    <div class="row">
+      <label class="f"><span>晚自習 每天需要</span><input type="number" id="cfgNn" min="0" max="5" style="width:70px"></label>
+      <label class="f"><span>晚自習 開始</span><input type="time" id="cfgTns"></label>
+      <label class="f"><span>晚自習 結束</span><input type="time" id="cfgTne"></label>
+    </div>
+    <div class="muted" style="margin-bottom:8px">時間只影響匯出到日曆的活動長度，不影響排班。</div>
     <button class="btn" id="btnSaveCfg">儲存設定</button>
   </div>
 
@@ -161,23 +172,32 @@ code{background:#eef1f4;padding:1px 5px;border-radius:4px;font-size:12px}
   </div>
 
   <div class="card">
-    <h3>連線設定（多人即時共用）</h3>
-    <div class="muted" style="margin-bottom:8px">
-      填入 Supabase 專案的 URL 與 anon key 後，所有家長開啟同一個網址就會看到同一份班表並即時同步。
-      留空則資料只存在你自己的瀏覽器（單機試用模式）。設定步驟見 README。
+    <h3>連線設定（Firebase，多人即時共用）</h3>
+    <ol class="steps">
+      <li>到 <a href="https://console.firebase.google.com" target="_blank" rel="noopener">Firebase 主控台</a> 用你的 Google 帳號新增專案（Google Analytics 可以關掉）。</li>
+      <li>左側「建構 → Firestore Database」→ 建立資料庫 → 位置選 <code>asia-east1</code> → 先選「以測試模式啟動」。</li>
+      <li>「專案設定 → 一般 → 您的應用程式」→ 點網頁圖示 <code>&lt;/&gt;</code> 註冊應用程式，會出現一段 <code>firebaseConfig = { ... }</code>。</li>
+      <li>把那整段貼到下面的框框，按「儲存並連線」。</li>
+      <li>回到「Firestore Database → 規則」，貼上 repo 裡 <code>firestore.rules</code> 的內容並發布（測試模式 30 天後會失效）。</li>
+    </ol>
+    <textarea id="cfgFb" rows="9" placeholder='const firebaseConfig = {
+  apiKey: "AIza...",
+  authDomain: "your-project.firebaseapp.com",
+  projectId: "your-project",
+  storageBucket: "your-project.appspot.com",
+  messagingSenderId: "1234567890",
+  appId: "1:1234:web:abcd"
+};'></textarea>
+    <div class="row" style="margin-top:10px">
+      <button class="btn" id="btnConnect">儲存並連線</button>
+      <button class="btn sec" id="btnShareLink">複製分享連結</button>
+      <button class="btn sec" id="btnUpload">把本機資料上傳到雲端</button>
     </div>
-    <div class="row">
-      <label class="f" style="flex:1;min-width:260px"><span>Project URL</span><input type="text" id="cfgUrl" placeholder="https://xxxx.supabase.co"></label>
-      <label class="f" style="flex:1;min-width:260px"><span>anon public key</span><input type="text" id="cfgKey" placeholder="eyJhbGciOi..."></label>
-    </div>
-    <button class="btn" id="btnConnect">儲存並連線</button>
-    <button class="btn sec" id="btnShareLink">複製分享連結</button>
-    <button class="btn sec" id="btnUpload">把本機資料上傳到雲端</button>
   </div>
 
   <div class="card">
     <h3>危險區</h3>
-    <button class="btn danger" id="btnReset">清除全部資料</button>
+    <button class="btn danger" id="btnReset">清除本機資料</button>
   </div>
 </section>
 
@@ -186,33 +206,36 @@ code{background:#eef1f4;padding:1px 5px;border-radius:4px;font-size:12px}
 
 <script>
 /* ============================================================
-   若你想把金鑰直接寫死在檔案裡（家長就不用自己填），改這兩行：
+   想讓家長完全不用填設定，可把 Firebase config 直接寫死在這裡：
+   const BUILTIN_CFG = { apiKey:"...", authDomain:"...", projectId:"..." };
    ============================================================ */
-const BUILTIN_URL = "";
-const BUILTIN_KEY = "";
+const BUILTIN_CFG = null;
 
 const DOWN = ['日','一','二','三','四','五','六'];
 const PERIODS = [
   {k:'p9',    name:'第九節'},
   {k:'night', name:'晚自習'}
 ];
-const LS = 'parentDuty.v1';
+const LS = 'parentDuty.v2';
+const LS_CFG = 'parentDuty.fbcfg';
 
 let S = {
-  settings:{ startDate:'', endDate:'', perSlot:{p9:1, night:1} },
+  settings:{ startDate:'', endDate:'', perSlot:{p9:1, night:1},
+             time:{p9:['16:10','17:00'], night:['18:30','20:30']} },
   students:[],
   holidays:[]
 };
 let SHIFTS = {};              // "2026-09-11|p9|0" -> {studentId, locked}
-let sb = null, mode = 'local', me = '';
-let lastAuto = null;
+let db = null, mode = 'local', me = '';
+let suppress = false;         // 自己寫入時避免重複重繪
 
 /* ---------- 小工具 ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const key = (d,p,i) => `${d}|${p}|${i}`;
+const docId = (d,p,i) => `${d}_${p}_${i}`;
 const uid = () => 'S'+Math.random().toString(36).slice(2,9);
-function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'),2200); }
+function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'),2400); }
 function parseISO(s){ const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); }
 function toISO(dt){ return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`; }
 function dateRange(a,b){
@@ -223,6 +246,12 @@ function dateRange(a,b){
 }
 function stuById(id){ return S.students.find(s=>s.id===id); }
 function labelOf(s){ return s ? (s.parent || s.name) + (s.parent && s.name ? `（${s.name}家長）` : '') : ''; }
+function normSettings(x){
+  const s = x || {};
+  return { startDate:s.startDate||'', endDate:s.endDate||'',
+           perSlot:{p9:Number(s.perSlot?.p9 ?? 1), night:Number(s.perSlot?.night ?? 1)},
+           time:{ p9: s.time?.p9 || ['16:10','17:00'], night: s.time?.night || ['18:30','20:30'] } };
+}
 
 /* ---------- 排班核心 ---------- */
 function holidaySet(){ return new Set(S.holidays.map(h=>h.d)); }
@@ -290,81 +319,96 @@ function autoAssign(keepLocked=true){
   return {result, target, count, slots};
 }
 
-/* ---------- 儲存 ---------- */
-function saveLocal(){
-  localStorage.setItem(LS, JSON.stringify({S, SHIFTS, me}));
-}
+/* ---------- 儲存：本機 ---------- */
+function saveLocal(){ try{ localStorage.setItem(LS, JSON.stringify({S, SHIFTS, me})); }catch(e){} }
 function loadLocal(){
   try{
     const raw = JSON.parse(localStorage.getItem(LS)||'null');
-    if(raw){ S = raw.S || S; SHIFTS = raw.SHIFTS || {}; me = raw.me || ''; }
+    if(raw){ S = {settings:normSettings(raw.S?.settings), students:raw.S?.students||[], holidays:raw.S?.holidays||[]};
+             SHIFTS = raw.SHIFTS || {}; me = raw.me || ''; }
   }catch(e){}
 }
 
+/* ---------- 儲存：Firestore ---------- */
 async function pushMeta(){
   saveLocal();
-  if(mode!=='supabase') return;
-  const {error} = await sb.from('board_meta').upsert({id:1, doc:S, updated_at:new Date().toISOString()});
-  if(error) toast('儲存失敗：'+error.message);
-}
-async function pushShifts(list){
-  saveLocal();
-  if(mode!=='supabase') return;
-  const rows = list.map(({d,period,idx,v})=>({
-    d, period, slot_idx:idx,
-    student_id: v?.studentId || null,
-    locked: !!v?.locked,
-    updated_by: me || null,
-    updated_at: new Date().toISOString()
-  }));
-  for(let i=0;i<rows.length;i+=400){
-    const {error} = await sb.from('shifts').upsert(rows.slice(i,i+400), {onConflict:'d,period,slot_idx'});
-    if(error){ toast('同步失敗：'+error.message); return; }
-  }
-}
-async function pullAll(){
-  if(mode!=='supabase') return;
-  const [m, sh] = await Promise.all([
-    sb.from('board_meta').select('doc').eq('id',1).maybeSingle(),
-    sb.from('shifts').select('*')
-  ]);
-  if(m.data?.doc && Object.keys(m.data.doc).length){
-    const d = m.data.doc;
-    S = { settings:{perSlot:{p9:1,night:1}, ...(d.settings||{})}, students:d.students||[], holidays:d.holidays||[] };
-    if(!S.settings.perSlot) S.settings.perSlot={p9:1,night:1};
-  }
-  SHIFTS = {};
-  (sh.data||[]).forEach(r=>{
-    SHIFTS[key(r.d, r.period, r.slot_idx)] = {studentId:r.student_id||'', locked:!!r.locked};
-  });
-  saveLocal();
+  if(mode!=='firebase') return;
+  try{
+    suppress = true;
+    await db.collection('board').doc('meta').set({
+      settings:S.settings, students:S.students, holidays:S.holidays, updatedAt:Date.now()
+    });
+  }catch(e){ toast('儲存失敗：'+e.message); }
+  finally{ setTimeout(()=>suppress=false, 300); }
 }
 
-async function connect(url, akey, quiet){
-  if(!url || !akey){ mode='local'; setConn(); return false; }
+async function pushShifts(list){
+  saveLocal();
+  if(mode!=='firebase') return;
   try{
-    sb = window.supabase.createClient(url, akey, {realtime:{params:{eventsPerSecond:5}}});
-    const {error} = await sb.from('board_meta').select('id').limit(1);
-    if(error) throw error;
-    mode='supabase';
-    localStorage.setItem('parentDuty.conn', JSON.stringify({url, key:akey}));
-    await pullAll();
-    sb.channel('duty')
-      .on('postgres_changes',{event:'*',schema:'public',table:'shifts'}, async()=>{ await pullAll(); renderAll(); })
-      .on('postgres_changes',{event:'*',schema:'public',table:'board_meta'}, async()=>{ await pullAll(); renderAll(); })
-      .subscribe();
+    suppress = true;
+    for(let i=0;i<list.length;i+=400){
+      const batch = db.batch();
+      list.slice(i,i+400).forEach(({d,period,idx,v})=>{
+        batch.set(db.collection('shifts').doc(docId(d,period,idx)), {
+          d, period, idx, studentId: v?.studentId||'', locked: !!v?.locked,
+          updatedBy: me||'', updatedAt: Date.now()
+        });
+      });
+      await batch.commit();
+    }
+  }catch(e){ toast('同步失敗：'+e.message); }
+  finally{ setTimeout(()=>suppress=false, 400); }
+}
+
+function parseFbConfig(text){
+  if(!text) return null;
+  const get = k => (text.match(new RegExp(k+'\\s*:\\s*["\']([^"\']+)["\']'))||[])[1];
+  const cfg = {
+    apiKey:get('apiKey'), authDomain:get('authDomain'), projectId:get('projectId'),
+    storageBucket:get('storageBucket'), messagingSenderId:get('messagingSenderId'), appId:get('appId')
+  };
+  if(!cfg.apiKey || !cfg.projectId) return null;
+  Object.keys(cfg).forEach(k=>{ if(!cfg[k]) delete cfg[k]; });
+  return cfg;
+}
+
+async function connect(cfg, quiet){
+  if(!cfg) { mode='local'; setConn(); return false; }
+  try{
+    if(!firebase.apps.length) firebase.initializeApp(cfg);
+    db = firebase.firestore();
+    await db.collection('board').doc('meta').get();   // 連線測試
+    mode='firebase';
+    localStorage.setItem(LS_CFG, JSON.stringify(cfg));
+
+    db.collection('board').doc('meta').onSnapshot(snap=>{
+      if(suppress || !snap.exists) return;
+      const d = snap.data();
+      S = { settings:normSettings(d.settings), students:d.students||[], holidays:d.holidays||[] };
+      saveLocal(); renderAll();
+    }, e=>toast('讀取設定失敗：'+e.message));
+
+    db.collection('shifts').onSnapshot(snap=>{
+      if(suppress) return;
+      const next={};
+      snap.forEach(doc=>{ const r=doc.data(); next[key(r.d,r.period,r.idx)]={studentId:r.studentId||'', locked:!!r.locked}; });
+      SHIFTS = next; saveLocal(); renderBoard(); renderStats();
+    }, e=>toast('讀取班表失敗：'+e.message));
+
     setConn();
-    if(!quiet) toast('已連線，資料即時同步中');
+    if(!quiet) toast('已連線 Firebase，資料即時同步中');
     return true;
   }catch(e){
-    mode='local'; sb=null; setConn();
+    mode='local'; db=null; setConn();
     toast('連線失敗：'+(e.message||e));
     return false;
   }
 }
+
 function setConn(){
   const el=$('#conn');
-  if(mode==='supabase'){ el.textContent='☁️ 雲端即時同步'; el.className='pill on'; }
+  if(mode==='firebase'){ el.textContent='☁️ Firebase 即時同步'; el.className='pill on'; }
   else { el.textContent='💾 單機模式（僅存在本瀏覽器）'; el.className='pill off'; }
 }
 
@@ -399,7 +443,7 @@ function renderBoard(){
     const dow = parseISO(d).getDay();
     const cells = {};
     byDate[d].forEach(s=> cells[s.period+'|'+s.idx]=s);
-    let tds='', anyMine=false, anyEmpty=false, out='';
+    let tds='', anyMine=false, anyEmpty=false;
     PERIODS.forEach(P=>{
       for(let i=0;i<maxN[P.k];i++){
         const s = cells[P.k+'|'+i];
@@ -488,6 +532,10 @@ function renderSetup(){
   $('#cfgEnd').value   = S.settings.endDate||'';
   $('#cfgN9').value    = S.settings.perSlot.p9 ?? 1;
   $('#cfgNn').value    = S.settings.perSlot.night ?? 1;
+  $('#cfgT9s').value   = S.settings.time.p9[0];
+  $('#cfgT9e').value   = S.settings.time.p9[1];
+  $('#cfgTns').value   = S.settings.time.night[0];
+  $('#cfgTne').value   = S.settings.time.night[1];
   $('#holList').innerHTML = S.holidays.length
     ? S.holidays.slice().sort((a,b)=>a.d<b.d?-1:1).map(h=>
         `<span style="display:inline-block;margin:3px 6px 3px 0;background:#eef1f4;padding:3px 8px;border-radius:6px">
@@ -529,8 +577,7 @@ $('#btnAuto').onclick = async ()=>{
   const r = autoAssign(true);
   if(!r){ toast('沒有可排班的時段'); return; }
   SHIFTS = r.result;
-  const list = r.slots.map(s=>({d:s.d, period:s.period, idx:s.idx, v:SHIFTS[key(s.d,s.period,s.idx)]}));
-  await pushShifts(list);
+  await pushShifts(r.slots.map(s=>({d:s.d, period:s.period, idx:s.idx, v:SHIFTS[key(s.d,s.period,s.idx)]})));
   renderAll();
   toast(`已排定 ${r.slots.length} 個時段`);
 };
@@ -556,7 +603,7 @@ $('#rosterTbl').addEventListener('input', e=>{
   const f=e.target.dataset.fld; if(!f) return;
   const s=stuById(e.target.dataset.id); if(!s) return;
   s[f]=e.target.value;
-  clearTimeout(window._sv); window._sv=setTimeout(()=>{ pushMeta(); renderStats(); }, 500);
+  clearTimeout(window._sv); window._sv=setTimeout(()=>{ pushMeta(); renderStats(); }, 600);
 });
 $('#rosterTbl').addEventListener('change', async e=>{
   if(e.target.dataset.att){
@@ -583,6 +630,8 @@ $('#rosterTbl').addEventListener('click', async e=>{
 $('#btnSaveCfg').onclick = async ()=>{
   S.settings.startDate=$('#cfgStart').value; S.settings.endDate=$('#cfgEnd').value;
   S.settings.perSlot={p9:Number($('#cfgN9').value||0), night:Number($('#cfgNn').value||0)};
+  S.settings.time={p9:[$('#cfgT9s').value||'16:10', $('#cfgT9e').value||'17:00'],
+                   night:[$('#cfgTns').value||'18:30', $('#cfgTne').value||'20:30']};
   await pushMeta(); renderAll(); toast('已儲存');
 };
 $('#btnAddHol').onclick = async ()=>{
@@ -595,22 +644,62 @@ $('#holList').addEventListener('click', async e=>{
   const d=e.target.dataset.delhol; if(!d) return;
   S.holidays=S.holidays.filter(h=>h.d!==d); await pushMeta(); renderAll();
 });
-$('#btnConnect').onclick = async ()=>{ await connect($('#cfgUrl').value.trim(), $('#cfgKey').value.trim()); renderAll(); };
+$('#btnConnect').onclick = async ()=>{
+  const cfg = parseFbConfig($('#cfgFb').value);
+  if(!cfg){ toast('讀不到設定，請確認貼上的內容含有 apiKey 與 projectId'); return; }
+  if(await connect(cfg)) renderAll();
+};
 $('#btnShareLink').onclick = ()=>{
-  const u=$('#cfgUrl').value.trim(), k=$('#cfgKey').value.trim();
-  if(!u||!k){ toast('請先填入連線資訊'); return; }
-  const link = location.origin+location.pathname+'#url='+encodeURIComponent(u)+'&key='+encodeURIComponent(k);
+  const cfg = parseFbConfig($('#cfgFb').value) || JSON.parse(localStorage.getItem(LS_CFG)||'null');
+  if(!cfg){ toast('請先完成連線設定'); return; }
+  const link = location.origin+location.pathname+'#c='+encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(cfg)))));
   navigator.clipboard.writeText(link).then(()=>toast('連結已複製，可貼到家長群組')).catch(()=>prompt('複製此連結：', link));
 };
 $('#btnUpload').onclick = async ()=>{
-  if(mode!=='supabase'){ toast('尚未連線'); return; }
+  if(mode!=='firebase'){ toast('尚未連線'); return; }
   await pushMeta();
   await pushShifts(Object.entries(SHIFTS).map(([k,v])=>{ const [d,p,i]=k.split('|'); return {d,period:p,idx:Number(i),v}; }));
-  toast('已上傳');
+  toast('已上傳到雲端');
 };
 $('#btnReset').onclick = ()=>{
-  if(!confirm('清除本機所有資料？（雲端資料不受影響）')) return;
+  if(!confirm('清除本機資料？（雲端資料不受影響）')) return;
   localStorage.removeItem(LS); location.reload();
+};
+
+/* ---------- 匯出日曆 (.ics) ---------- */
+function icsStamp(dateISO, hhmm){
+  // 台灣固定 UTC+8，無日光節約，直接減 8 小時輸出 UTC
+  const [y,m,d]=dateISO.split('-').map(Number), [H,M]=hhmm.split(':').map(Number);
+  const t = new Date(Date.UTC(y, m-1, d, H-8, M, 0));
+  const p = n=>String(n).padStart(2,'0');
+  return `${t.getUTCFullYear()}${p(t.getUTCMonth()+1)}${p(t.getUTCDate())}T${p(t.getUTCHours())}${p(t.getUTCMinutes())}00Z`;
+}
+$('#btnIcsMine').onclick = ()=>{
+  if(!me){ toast('請先在右上角選擇「我是」'); return; }
+  const st = stuById(me);
+  const mine = buildSlots().filter(s=> SHIFTS[key(s.d,s.period,s.idx)]?.studentId === me);
+  if(!mine.length){ toast('目前沒有排到你的班'); return; }
+  const now = icsStamp(toISO(new Date()),'12:00');
+  const ev = mine.map(s=>{
+    const P = PERIODS.find(p=>p.k===s.period);
+    const [t1,t2] = S.settings.time[s.period];
+    return ['BEGIN:VEVENT',
+      `UID:${s.d}-${s.period}-${s.idx}-${me}@parent-duty-roster`,
+      `DTSTAMP:${now}`,
+      `DTSTART:${icsStamp(s.d,t1)}`,
+      `DTEND:${icsStamp(s.d,t2)}`,
+      `SUMMARY:值班 ${P.name}（${st.name}）`,
+      `DESCRIPTION:家長值班排班系統`,
+      'BEGIN:VALARM','TRIGGER:-PT2H','ACTION:DISPLAY','DESCRIPTION:今天輪到你值班','END:VALARM',
+      'END:VEVENT'].join('\r\n');
+  }).join('\r\n');
+  const ics = ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//parent-duty-roster//TW','CALSCALE:GREGORIAN',
+               'METHOD:PUBLISH', ev, 'END:VCALENDAR'].join('\r\n');
+  const url = URL.createObjectURL(new Blob([ics], {type:'text/calendar;charset=utf-8'}));
+  const a = document.createElement('a');
+  a.href=url; a.download=`我的值班_${st.parent||st.name}.ics`; a.click();
+  setTimeout(()=>URL.revokeObjectURL(url), 3000);
+  toast(`已匯出 ${mine.length} 筆，開啟檔案即可加入 Google 日曆`);
 };
 
 /* ---------- Excel ---------- */
@@ -711,15 +800,18 @@ $('#btnExport').onclick = ()=>{
 /* ---------- 啟動 ---------- */
 (async function init(){
   loadLocal();
-  if(!S.settings.perSlot) S.settings.perSlot={p9:1,night:1};
+  S.settings = normSettings(S.settings);
 
+  let cfg = BUILTIN_CFG;
   const hash = new URLSearchParams(location.hash.slice(1));
-  const saved = JSON.parse(localStorage.getItem('parentDuty.conn')||'null');
-  const url = hash.get('url') || BUILTIN_URL || saved?.url || '';
-  const akey = hash.get('key') || BUILTIN_KEY || saved?.key || '';
-  $('#cfgUrl').value=url; $('#cfgKey').value=akey;
+  if(!cfg && hash.get('c')){
+    try{ cfg = JSON.parse(decodeURIComponent(escape(atob(hash.get('c'))))); }catch(e){}
+  }
+  if(!cfg){ try{ cfg = JSON.parse(localStorage.getItem(LS_CFG)||'null'); }catch(e){} }
+  if(cfg) $('#cfgFb').value = 'const firebaseConfig = ' + JSON.stringify(cfg, null, 2) + ';';
+
   setConn();
-  if(url && akey) await connect(url, akey, true);
+  if(cfg) await connect(cfg, true);
 
   if(!S.settings.startDate){
     const y=new Date().getFullYear();

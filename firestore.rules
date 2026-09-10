@@ -1,0 +1,31 @@
+rules_version = '2';
+
+// 家長值班排班系統 — Firestore 安全規則
+// 用法：Firebase 主控台 → Firestore Database → 規則 → 全部貼上 → 發布
+//
+// 本系統設計為「不需登入，家長進來選自己名字」，因此規則開放讀寫。
+// 任何拿到網址的人都能修改班表 —— 班級內部使用通常可接受，
+// 但請不要把連結貼到公開網路上。
+//
+// 若要更嚴格，可改用 Firebase Authentication（匿名或 Google 登入），
+// 把下面的 true 換成 request.auth != null。
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 設定、學生名單、假日（單一文件 board/meta）
+    match /board/{docId} {
+      allow read, write: if true;
+    }
+
+    // 班表，一格一份文件
+    match /shifts/{docId} {
+      allow read, write: if true;
+    }
+
+    // 其他路徑一律禁止
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

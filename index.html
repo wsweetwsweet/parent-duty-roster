@@ -778,7 +778,7 @@ function renderStats(){
     if(partnersOn(s.d,p).has(famKey(st))) paired++;
   });
   if(filled && Number(S.settings.perSlot[other(p)]||0)>0){
-    $('#statsHint').textContent += ` 目前有 ${paired}/${filled} 格與「${PERIODS[other(p)]}」當天是同一位家長（${Math.round(paired/filled*100)}%）。`;
+    $('#statsHint').innerHTML += ` 目前有 ${paired}/${filled} 格與「${PERIODS[other(p)]}」當天是同一位家長（${Math.round(paired/filled*100)}%）。`;
   }
   const maxV = Math.max(1, ...Object.values(count), ...Object.values(target));
   const list = roster(p).slice().sort((a,b)=>seatOf(a)-seatOf(b));

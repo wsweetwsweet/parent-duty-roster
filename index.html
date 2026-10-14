@@ -109,8 +109,8 @@ code{background:#eef1f4;padding:1px 5px;border-radius:4px;font-size:12px}
 </header>
 
 <nav>
-  <button data-tab="board" class="active">班表</button>
-  <button data-tab="all">📋 總表</button>
+  <button data-tab="all" class="active">📋 總表</button>
+  <button data-tab="board">班表</button>
   <button data-tab="roster">名單</button>
   <button data-tab="stats">統計</button>
   <button data-tab="setup">設定</button>
@@ -119,7 +119,7 @@ code{background:#eef1f4;padding:1px 5px;border-radius:4px;font-size:12px}
 <main>
 
 <!-- ================= 班表 ================= -->
-<section id="tab-board">
+<section id="tab-board" hidden>
   <div class="row">
     <label class="f"><span>月份</span><select id="monthSel"></select></label>
     <label class="f"><span>檢視</span>
@@ -140,7 +140,7 @@ code{background:#eef1f4;padding:1px 5px;border-radius:4px;font-size:12px}
 </section>
 
 <!-- ================= 總表 ================= -->
-<section id="tab-all" hidden>
+<section id="tab-all">
   <div class="row">
     <label class="f"><span>月份</span><select id="allMonth"></select></label>
     <label class="f"><span>檢視</span>

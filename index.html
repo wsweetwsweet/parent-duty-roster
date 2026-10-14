@@ -290,8 +290,8 @@ code{background:#eef1f4;padding:1px 5px;border-radius:4px;font-size:12px}
   <div class="card">
     <h3>管理員密碼</h3>
     <div class="muted" style="margin-bottom:8px">
-      設定之後，「設定」分頁、自動排班、清空、鎖定按鈕都需要密碼。家長仍可看班表、匯出，
-      並把自己的班讓給別人或接下空著的班。<br>
+      設定之後，只有「設定」分頁、自動排班、清空、鎖定／解除按鈕需要密碼。<br>
+      家長不用登入就能直接改任何一格班表（包含已鎖定的格子）、填點心、編輯名單、看班表和匯出。<br>
       提醒：密碼是在瀏覽器端檢查的，可以擋住誤觸，但擋不住刻意破解。班級內部使用足夠，
       不要拿它保護真正機密的資料。
     </div>
@@ -957,14 +957,8 @@ $('#viewSel').onchange = renderBoard;
 async function onCellChange(e){
   const sel=e.target.closest('.cellSel'); if(!sel) return;
   const k=sel.dataset.k, [d,p,i]=k.split('|');
-  const prev = SHIFTS[k]?.studentId||'', next = sel.value;
-  // 家長只能動到自己的班：把自己的班讓出去，或把別人／空白的班接過來
-  if(!canManage()){
-    const me = ME[p];
-    if(SHIFTS[k]?.locked){ sel.value=prev; toast('這一格已鎖定，需要管理員才能修改'); return; }
-    if(!me){ sel.value=prev; toast('請先在右上角選擇「我是」'); return; }
-    if(prev!==me && next!==me){ sel.value=prev; toast('你只能把自己的班讓出去，或把這一格接過來'); return; }
-  }
+  const next = sel.value;
+  // 任何人都能直接改任一格（含已鎖定的格子）；鎖定只用來讓自動排班不要動到
   SHIFTS[k]={studentId:next, locked:SHIFTS[k]?.locked||false};
   await pushShifts([{d, period:p, idx:Number(i), v:SHIFTS[k]}]);
   renderBoard(); renderAllTable(); renderStats();

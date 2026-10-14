@@ -52,6 +52,7 @@ td.slot.filled{background:#f5f7fb}
 td.slot.mine{background:var(--mine)}
 td.slot.empty select{color:#b91c1c}
 td.snack{padding:3px;background:#fffaf0}
+td.na{background:#e5e7eb;color:#4b5563;text-align:center}
 td.snack input{width:100%;min-width:80px;border:0;background:transparent;padding:4px}
 td.snack input:focus{background:#fff;outline:1px solid var(--accent)}
 .lock{border:0;background:none;cursor:pointer;font-size:12px;opacity:.3;padding:0 2px}
@@ -87,7 +88,7 @@ code{background:#eef1f4;padding:1px 5px;border-radius:4px;font-size:12px}
   td.snack input{outline:0}
   .lock{display:none}
   th{background:#eee !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  td.slot.mine,td.slot[style]{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  td.na,td.slot.mine,td.slot[style]{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }
 </style>
 </head>
@@ -419,6 +420,7 @@ function normalize(x){
 }
 
 /* ---------- 排班核心（單一時段） ---------- */
+const snackHoliday = d => S.holidays.find(h=>h.d===d && (h.scope==='all' || h.scope==='p9'));
 function isHoliday(d, p){
   return S.holidays.some(h=>h.d===d && (h.scope==='all' || h.scope===p));
 }
@@ -770,10 +772,13 @@ function renderAllTable(){
     if(view==='mine' && !mine) continue;
     if(view==='empty' && !empty) continue;
     if(view==='paired' && !both.length) continue;
-    const sn=snackOf(d);
-    rows+=`<tr><td>${d}</td><td>${DOWN[dow]}</td>
-           <td class="snack"><input class="snackIn" data-d="${d}" data-f="who" value="${esc(sn.who)}" placeholder="填寫名字"></td>
-           <td class="snack"><input class="snackIn" data-d="${d}" data-f="item" value="${esc(sn.item)}" placeholder="例：餅乾、水果"></td>${tds}
+    // 點心跟著第九節：第九節放假的日子，點心兩格合併顯示假日名稱
+    const sn=snackOf(d), hol=snackHoliday(d);
+    const snackTds = hol
+      ? `<td colspan="2" class="na">${esc(hol.note||'放假')}</td>`
+      : `<td class="snack"><input class="snackIn" data-d="${d}" data-f="who" value="${esc(sn.who)}" placeholder="填寫名字"></td>
+         <td class="snack"><input class="snackIn" data-d="${d}" data-f="item" value="${esc(sn.item)}" placeholder="例：餅乾、水果"></td>`;
+    rows+=`<tr><td>${d}</td><td>${DOWN[dow]}</td>${snackTds}${tds}
            <td style="text-align:center">${both.length?'✓':''}</td></tr>`;
   }
   const cols=5+n.p9+n.night;
@@ -1009,7 +1014,8 @@ $('#btnAllExport').onclick = ()=>{
   const aoa=[hdr];
   const slotMap={}; PKEYS.forEach(p=>{ slotMap[p]={}; buildSlots(p).forEach(s=>(slotMap[p][s.d] ||= {})[s.idx]=s); });
   allDates().forEach(d=>{
-    const sn=snackOf(d), row=[d, DOWN[parseISO(d).getDay()], sn.who, sn.item];
+    const sn=snackOf(d), hol=snackHoliday(d);
+    const row=[d, DOWN[parseISO(d).getDay()], ...(hol ? [hol.note||'放假', hol.note||'放假'] : [sn.who, sn.item])];
     const fams={p9:new Set(), night:new Set()};
     PKEYS.forEach(p=>{ for(let i=0;i<n[p];i++){ const st=stuById(p,SHIFTS[key(d,p,i)]?.studentId); if(st) fams[p].add(famKey(st)); }});
     PKEYS.forEach(p=>{

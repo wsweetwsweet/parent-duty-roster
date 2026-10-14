@@ -51,6 +51,9 @@ td.slot select{width:100%;border:0;background:transparent;padding:4px}
 td.slot.filled{background:#f5f7fb}
 td.slot.mine{background:var(--mine)}
 td.slot.empty select{color:#b91c1c}
+td.snack{padding:3px;background:#fffaf0}
+td.snack input{width:100%;min-width:80px;border:0;background:transparent;padding:4px}
+td.snack input:focus{background:#fff;outline:1px solid var(--accent)}
 .lock{border:0;background:none;cursor:pointer;font-size:12px;opacity:.3;padding:0 2px}
 .lock.on{opacity:1}
 body.readonly .lock{cursor:not-allowed;opacity:.15}
@@ -81,6 +84,7 @@ code{background:#eef1f4;padding:1px 5px;border-radius:4px;font-size:12px}
   #tab-all{display:block !important}
   .wrap{max-height:none;overflow:visible;border:0}
   td.slot select{-webkit-appearance:none;appearance:none;border:0;background:none}
+  td.snack input{outline:0}
   .lock{display:none}
   th{background:#eee !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   td.slot.mine,td.slot[style]{-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -154,6 +158,7 @@ code{background:#eef1f4;padding:1px 5px;border-radius:4px;font-size:12px}
   <div class="muted" style="margin-bottom:8px">
     兩個時段並排對照，下拉選單一樣可以直接改。<b style="background:#dcfce7;padding:1px 5px;border-radius:4px">綠底</b>
     表示當天兩節是同一位家長，<span style="background:var(--mine);padding:1px 5px;border-radius:4px">黃底</span>是你自己的班。
+    「點心」欄請自行填上名字和要準備的品項，輸入完按 Enter 或點別處就會儲存。
   </div>
   <div class="wrap"><table id="allTbl"></table></div>
 </section>
@@ -327,6 +332,9 @@ let S = {
   holidays:[]                      // {d, note, scope:'all'|'p9'|'night'}
 };
 let SHIFTS = {};                   // "2026-09-11|p9|0" -> {studentId, locked}
+let SNACKS = {};                   // "2026-09-11" -> {who, item} 負責點心的家長與品項（自由填寫）
+// 舊資料只存家長名字（字串），讀取時一併轉成 {who, item}
+const snackOf = d => { const v=SNACKS[d]; return typeof v==='string' ? {who:v, item:''} : {who:v?.who||'', item:v?.item||''}; };
 let db = null, mode = 'local';
 let CP = 'p9';                     // 目前檢視的時段
 let isAdmin = false;               // 這台裝置是否已通過管理員密碼
@@ -524,11 +532,11 @@ function autoAssign(p, keepLocked=true){
 }
 
 /* ---------- 儲存 ---------- */
-function saveLocal(){ try{ localStorage.setItem(LS, JSON.stringify({S, SHIFTS, ME, CP})); }catch(e){} }
+function saveLocal(){ try{ localStorage.setItem(LS, JSON.stringify({S, SHIFTS, SNACKS, ME, CP})); }catch(e){} }
 function loadLocal(){
   try{
     let raw = JSON.parse(localStorage.getItem(LS)||'null');
-    if(raw){ S=normalize(raw.S); SHIFTS=raw.SHIFTS||{}; ME=raw.ME||{p9:'',night:''}; CP=raw.CP||'p9'; return; }
+    if(raw){ S=normalize(raw.S); SHIFTS=raw.SHIFTS||{}; SNACKS=raw.SNACKS||{}; ME=raw.ME||{p9:'',night:''}; CP=raw.CP||'p9'; return; }
     const old = JSON.parse(localStorage.getItem(LS_OLD)||'null');   // 從舊版搬移
     if(old){ S=normalize(old.S); SHIFTS=old.SHIFTS||{}; }
   }catch(e){}
@@ -562,6 +570,16 @@ async function pushShifts(list){
   finally{ setTimeout(()=>suppress=false, 400); }
 }
 
+async function pushSnack(d, v){
+  saveLocal();
+  if(mode!=='firebase') return;
+  try{
+    suppress = true;
+    await db.collection('board').doc('snacks').set({[d]:v}, {merge:true});
+  }catch(e){ toast('儲存失敗：'+e.message); }
+  finally{ setTimeout(()=>suppress=false, 300); }
+}
+
 function parseFbConfig(text){
   if(!text) return null;
   const get = k => (text.match(new RegExp(k+'\\s*:\\s*["\']([^"\']+)["\']'))||[])[1];
@@ -593,6 +611,16 @@ async function connect(cfg, quiet){
       snap.forEach(doc=>{ const r=doc.data(); next[key(r.d,r.period,r.idx)]={studentId:r.studentId||'', locked:!!r.locked}; });
       SHIFTS=next; saveLocal(); renderBoard(); renderAllTable(); renderStats();
     }, e=>toast('讀取班表失敗：'+e.message));
+
+    db.collection('board').doc('snacks').onSnapshot(snap=>{
+      if(suppress) return;
+      SNACKS = snap.exists ? snap.data() : {};
+      saveLocal();
+      // 只更新沒在輸入中的格子，避免打字打到一半被別人的更新蓋掉
+      document.querySelectorAll('#allTbl .snackIn').forEach(el=>{
+        if(el!==document.activeElement) el.value = snackOf(el.dataset.d)[el.dataset.f];
+      });
+    }, e=>toast('讀取點心名單失敗：'+e.message));
 
     setConn();
     if(!quiet) toast('已連線 Firebase，資料即時同步中');
@@ -700,10 +728,12 @@ function renderAllTable(){
   const slotMap={};
   PKEYS.forEach(p=>{ slotMap[p]={}; buildSlots(p).forEach(s=>(slotMap[p][s.d] ||= {})[s.idx]=s); });
 
-  let head=`<tr><th rowspan="2" style="width:105px">日期</th><th rowspan="2" style="width:36px">週</th>`;
+  let head=`<tr><th rowspan="2" style="width:105px">日期</th><th rowspan="2" style="width:36px">週</th>
+            <th colspan="2" style="text-align:center;background:#fff1d6">🍪 點心</th>`;
   if(n.p9)    head+=`<th colspan="${n.p9}" style="text-align:center;background:#e8efff">第九節</th>`;
   if(n.night) head+=`<th colspan="${n.night}" style="text-align:center;background:#f1e8ff">晚自習</th>`;
-  head+=`<th rowspan="2" style="width:44px">兼顧</th></tr><tr>`;
+  head+=`<th rowspan="2" style="width:44px">兼顧</th></tr>
+         <tr><th style="width:110px;background:#fff1d6">家長</th><th style="width:150px;background:#fff1d6">品項</th>`;
   PKEYS.forEach(p=>{ for(let i=0;i<n[p];i++) head+=`<th>${n[p]>1?(i+1):'值班家長'}</th>`; });
   head+='</tr>';
 
@@ -740,11 +770,21 @@ function renderAllTable(){
     if(view==='mine' && !mine) continue;
     if(view==='empty' && !empty) continue;
     if(view==='paired' && !both.length) continue;
-    rows+=`<tr><td>${d}</td><td>${DOWN[dow]}</td>${tds}
+    const sn=snackOf(d);
+    rows+=`<tr><td>${d}</td><td>${DOWN[dow]}</td>
+           <td class="snack"><input class="snackIn" data-d="${d}" data-f="who" value="${esc(sn.who)}" placeholder="填寫名字"></td>
+           <td class="snack"><input class="snackIn" data-d="${d}" data-f="item" value="${esc(sn.item)}" placeholder="例：餅乾、水果"></td>${tds}
            <td style="text-align:center">${both.length?'✓':''}</td></tr>`;
   }
-  const cols=3+n.p9+n.night;
+  const cols=5+n.p9+n.night;
+  // 重畫表格時保留正在輸入的點心欄位
+  const ae=document.activeElement, focusD=ae?.classList.contains('snackIn') ? ae.dataset.d : null, focusF=focusD && ae.dataset.f;
+  const focusVal=focusD && ae.value, caret=focusD && ae.selectionStart;
   t.innerHTML=head+(rows||`<tr><td colspan="${cols}" style="padding:20px;text-align:center;color:#888">此篩選條件下沒有資料</td></tr>`);
+  if(focusD){
+    const el=t.querySelector(`.snackIn[data-d="${focusD}"][data-f="${focusF}"]`);
+    if(el){ el.value=focusVal; el.focus(); el.setSelectionRange(caret, caret); }
+  }
 }
 
 function renderRoster(){
@@ -947,18 +987,29 @@ $('#statsTbl').parentElement.parentElement.addEventListener('click', async e=>{
                                return {d,period:p,idx:Number(i),v:SHIFTS[k]}; });
   await pushShifts(list); renderAll(); toast(`已清除 ${dead.length} 格`);
 });
+$('#allTbl').addEventListener('change', async e=>{
+  const el=e.target.closest('.snackIn'); if(!el) return;
+  const d=el.dataset.d, v={...snackOf(d), [el.dataset.f]:el.value.trim()};
+  const old=snackOf(d); if(old.who===v.who && old.item===v.item) return;
+  SNACKS[d]=v;
+  await pushSnack(d, v);
+  toast(v.who||v.item ? `已登記 ${d} 點心：${[v.who, v.item].filter(Boolean).join('／')}` : `已清除 ${d} 的點心登記`);
+});
+$('#allTbl').addEventListener('keydown', e=>{
+  if(e.key==='Enter' && e.target.classList.contains('snackIn')) e.target.blur();
+});
 $('#allMonth').onchange = renderAllTable;
 $('#allView').onchange  = renderAllTable;
 $('#btnAllPrint').onclick = ()=>window.print();
 $('#btnAllExport').onclick = ()=>{
   const n={p9:Number(S.settings.perSlot.p9||0), night:Number(S.settings.perSlot.night||0)};
-  const hdr=['日期','星期'];
+  const hdr=['日期','星期','點心家長','點心品項'];
   PKEYS.forEach(p=>{ for(let i=0;i<n[p];i++) hdr.push(PERIODS[p]+(n[p]>1?' '+(i+1):'')); });
   hdr.push('同一天兼顧');
   const aoa=[hdr];
   const slotMap={}; PKEYS.forEach(p=>{ slotMap[p]={}; buildSlots(p).forEach(s=>(slotMap[p][s.d] ||= {})[s.idx]=s); });
   allDates().forEach(d=>{
-    const row=[d, DOWN[parseISO(d).getDay()]];
+    const sn=snackOf(d), row=[d, DOWN[parseISO(d).getDay()], sn.who, sn.item];
     const fams={p9:new Set(), night:new Set()};
     PKEYS.forEach(p=>{ for(let i=0;i<n[p];i++){ const st=stuById(p,SHIFTS[key(d,p,i)]?.studentId); if(st) fams[p].add(famKey(st)); }});
     PKEYS.forEach(p=>{

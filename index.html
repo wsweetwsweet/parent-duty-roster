@@ -45,9 +45,16 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
 label.f{display:inline-flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);margin:0 12px 10px 0}
 table{border-collapse:collapse;width:100%;font-size:14px}
 th,td{border:1px solid var(--line);padding:5px 7px;text-align:left;vertical-align:middle}
-th{background:#f2f4f7;font-weight:600;font-size:13px;position:sticky;top:0}
+th{background:#f2f4f7;font-weight:600;font-size:13px;position:sticky;top:0;z-index:2}
+/* 總表兩列表頭：第一列固定高度，第二列黏在第一列下方，捲動時兩列都看得到 */
+#allTbl{--h1:32px}
+#allTbl tr:first-child th{height:var(--h1)}
+#allTbl tr:nth-child(2) th{top:calc(var(--h1) - 1px)}
+/* 總表日期欄固定在左邊，手機左右滑時仍看得到日期 */
+#allTbl td:first-child{position:sticky;left:0;z-index:1;background:var(--card);white-space:nowrap}
+#allTbl tr:first-child th:first-child{left:0;z-index:3}
 td.slot{padding:3px}
-td.slot select{width:100%;border:0;background:transparent;padding:4px}
+td.slot select{width:100%;min-width:90px;border:0;background:transparent;padding:4px}
 td.slot.filled{background:#f5f7fb}
 td.slot.mine{background:var(--mine)}
 td.slot.empty select{color:#b91c1c}

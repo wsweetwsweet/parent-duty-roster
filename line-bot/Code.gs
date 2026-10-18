@@ -19,7 +19,13 @@ const PKEYS = ['p9', 'night'];
 const DEFAULT_WEB_URL = 'https://wsweetwsweet.github.io/parent-duty-roster/';
 
 const props = () => PropertiesService.getScriptProperties();
-const prop = k => props().getProperty(k) || '';
+// 去掉不小心一起貼上的空白和引號
+const prop = k => (props().getProperty(k) || '').trim().replace(/^["']|["'],?$/g, '');
+function need(k) {
+  const v = prop(k);
+  if (!v) throw new Error(`指令碼屬性「${k}」沒有設定，請到「專案設定 → 指令碼屬性」檢查名稱有沒有打錯`);
+  return v;
+}
 
 /* ---------- LINE webhook ---------- */
 function doPost(e) {
@@ -167,11 +173,11 @@ function loadData(from, to) {
 }
 
 function fsBase() {
-  return `https://firestore.googleapis.com/v1/projects/${prop('FIREBASE_PROJECT_ID')}/databases/(default)/documents`;
+  return `https://firestore.googleapis.com/v1/projects/${need('FIREBASE_PROJECT_ID')}/databases/(default)/documents`;
 }
 
 function fsGet(path) {
-  const res = UrlFetchApp.fetch(`${fsBase()}/${path}?key=${prop('FIREBASE_API_KEY')}`, { muteHttpExceptions: true });
+  const res = UrlFetchApp.fetch(`${fsBase()}/${path}?key=${need('FIREBASE_API_KEY')}`, { muteHttpExceptions: true });
   if (res.getResponseCode() === 404) return null;
   if (res.getResponseCode() !== 200) throw new Error('讀取 Firebase 失敗：' + res.getContentText());
   return fsFields(JSON.parse(res.getContentText()).fields || {});
@@ -187,7 +193,7 @@ function fsQueryShifts(from, to) {
       ] } },
     },
   };
-  const res = UrlFetchApp.fetch(`${fsBase()}:runQuery?key=${prop('FIREBASE_API_KEY')}`, {
+  const res = UrlFetchApp.fetch(`${fsBase()}:runQuery?key=${need('FIREBASE_API_KEY')}`, {
     method: 'post', contentType: 'application/json', payload: JSON.stringify(query), muteHttpExceptions: true,
   });
   if (res.getResponseCode() !== 200) throw new Error('讀取班表失敗：' + res.getContentText());
@@ -221,7 +227,7 @@ function push(to, text) {
 function lineApi(kind, payload) {
   const res = UrlFetchApp.fetch(`https://api.line.me/v2/bot/message/${kind}`, {
     method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-    headers: { Authorization: 'Bearer ' + prop('LINE_TOKEN') },
+    headers: { Authorization: 'Bearer ' + need('LINE_TOKEN') },
     payload: JSON.stringify(payload),
   });
   if (res.getResponseCode() !== 200) console.error(`LINE ${kind} 失敗：` + res.getContentText());

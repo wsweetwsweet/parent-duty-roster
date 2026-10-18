@@ -47,13 +47,13 @@
 2. 把編輯器裡原本的 `function myFunction() {...}` 全部刪掉，貼上這個資料夾裡 [Code.gs](Code.gs) 的完整內容，按 💾 儲存。
 3. 左側齒輪「**專案設定**」：
    - **時區**：選「(GMT+08:00) 台北」
-   - 拉到最下面「**指令碼屬性**」→「新增指令碼屬性」，加入這三個：
+   - 拉到最下面「**指令碼屬性**」→「新增指令碼屬性」，加入這三個（屬性名稱要完全一樣，全大寫、不要有空白或引號）：
 
      | 屬性 | 值 |
      |---|---|
-     | `LINE_TOKEN` | 步驟 2 複製的 token |
-     | `FIREBASE_PROJECT_ID` | Firebase 的 projectId |
-     | `FIREBASE_API_KEY` | Firebase 的 apiKey |
+     | LINE_TOKEN | 步驟 2 複製的 token |
+     | FIREBASE_PROJECT_ID | Firebase 的 projectId |
+     | FIREBASE_API_KEY | Firebase 的 apiKey |
 
    - 儲存。
 4. 回到編輯器，上方函式選單選 **`預覽下週提醒`** → 按「執行」。

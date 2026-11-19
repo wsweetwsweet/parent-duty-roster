@@ -70,6 +70,9 @@ function handleEvent(ev) {
     removeGroup(src.groupId);
     return;
   }
+  if (ev.type === 'message' && src.groupId && src.userId) {
+    try { recordMember(src.groupId, src.userId); } catch (err) { console.error('記錄發言者失敗', err); }
+  }
   if (ev.type !== 'message' || ev.message.type !== 'text') return;
 
   const text = ev.message.text.trim();
@@ -107,7 +110,46 @@ function helpText() {
     '・班表：完整班表網址';
 }
 
+/* ---------- 蒐集群組發言者的 userId（之後要 @ 個別家長用） ---------- */
+// 群組裡有人發言（任何訊息類型）就記下他的 userId 和 LINE 暱稱。
+// 每位成員存成一筆指令碼屬性 M_<userId>，同一個人在不同群組發言只會有一筆（userId 在同一個機器人底下是固定的）。
+// 只有「機器人在群組、webhook 開著」期間的發言才收得到，過去的訊息查不回來。
+function recordMember(groupId, userId) {
+  const key = 'M_' + userId;
+  const old = props().getProperty(key);
+  let rec = old ? JSON.parse(old) : null;
+  if (!rec) {
+    rec = { name: lineProfileName(groupId, userId), groups: [groupId] };
+  } else if (rec.groups.indexOf(groupId) < 0) {
+    rec.groups.push(groupId);
+  } else {
+    return;   // 已經記過，不重複寫入
+  }
+  props().setProperty(key, JSON.stringify(rec));
+}
+
+function lineProfileName(groupId, userId) {
+  const res = UrlFetchApp.fetch(`https://api.line.me/v2/bot/group/${groupId}/member/${userId}`, {
+    headers: { Authorization: 'Bearer ' + need('LINE_TOKEN') }, muteHttpExceptions: true,
+  });
+  if (res.getResponseCode() !== 200) return '';
+  return JSON.parse(res.getContentText()).displayName || '';
+}
+
+// 在編輯器選這個函式按「執行」，執行記錄會列出目前蒐集到的名單
+function 查看發言者名單() {
+  const all = props().getProperties();
+  const rows = Object.keys(all).filter(k => k.indexOf('M_') === 0).map(k => {
+    const r = JSON.parse(all[k]);
+    return `${r.name || '(查不到暱稱)'}\t${k.slice(2)}\t群組數:${r.groups.length}`;
+  });
+  console.log(rows.length ? `共 ${rows.length} 人\n` + rows.join('\n') : '目前還沒有蒐集到任何人');
+}
+
 /* ---------- 每週推播 ---------- */
+// 提醒時是否在訊息最前面 @全部成員。等蒐集完家長的 userId，之後再改成只 @ 有值班的家長
+const MENTION_ALL = true;
+
 // 由時間觸發器在週五晚上執行，發下週一到五的班表
 function weeklyPush() {
   const groups = getGroups();
@@ -117,7 +159,7 @@ function weeklyPush() {
   if (!days.some(d => hasAnything(data, d))) return;   // 整週放假就不發，省額度
   const text = '📢 下週值班提醒\n\n' + formatDays(data, days) + '\n\n完整班表：' + (prop('WEB_URL') || DEFAULT_WEB_URL);
   groups.forEach(g => {
-    try { push(g, text); } catch (err) { console.error('推播到群組失敗 ' + g, err); }   // 一個群組失敗不影響其他群組
+    try { MENTION_ALL ? pushMentionAll(g, text) : push(g, text); } catch (err) { console.error('推播到群組失敗 ' + g, err); }   // 一個群組失敗不影響其他群組
   });
 }
 
@@ -258,6 +300,17 @@ function reply(token, text) {
 }
 function push(to, text) {
   lineApi('push', { to, messages: [{ type: 'text', text }] });
+}
+// 訊息最前面加 @All（只能用在群組或多人聊天室）
+function pushMentionAll(to, text) {
+  lineApi('push', {
+    to,
+    messages: [{
+      type: 'textV2',
+      text: '{everyone} ' + text,
+      substitution: { everyone: { type: 'mention', mentionee: { type: 'all' } } },
+    }],
+  });
 }
 function lineApi(kind, payload) {
   const res = UrlFetchApp.fetch(`https://api.line.me/v2/bot/message/${kind}`, {

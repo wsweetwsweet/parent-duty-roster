@@ -9,7 +9,8 @@
      FIREBASE_PROJECT_ID  Firebase 專案 ID
      FIREBASE_API_KEY     Firebase 網頁 API 金鑰
      WEB_URL              （選填）班表網址，打「班表」時回傳
-   GROUP_ID 會在機器人被加入群組時自動記下，不用手動填。
+   推播群組清單（GROUP_IDS）會在機器人被加入群組時自動記下，不用手動填。
+   群組裡輸入「綁定群組」加入清單、「取消綁定」移出清單，可以同時綁多個群組。
    ============================================================ */
 
 const TZ = 'Asia/Taipei';
@@ -36,19 +37,50 @@ function doPost(e) {
   return ContentService.createTextOutput('OK');
 }
 
+/* ---------- 推播群組清單（可以有多個群組） ---------- */
+// 清單存在指令碼屬性 GROUP_IDS（JSON 陣列）。舊版的單一 GROUP_ID 會自動併進來，不用手動搬。
+function getGroups() {
+  let list = [];
+  try { list = JSON.parse(props().getProperty('GROUP_IDS') || '[]'); } catch (e) { list = []; }
+  const legacy = prop('GROUP_ID');
+  if (legacy && list.indexOf(legacy) < 0) list.push(legacy);
+  return list;
+}
+function saveGroups(list) {
+  props().setProperty('GROUP_IDS', JSON.stringify(list));
+  props().deleteProperty('GROUP_ID');   // 舊欄位已併入清單，移除以免取消綁定後又被加回來
+}
+function addGroup(id) {
+  const list = getGroups();
+  if (list.indexOf(id) < 0) list.push(id);
+  saveGroups(list);
+}
+function removeGroup(id) {
+  saveGroups(getGroups().filter(g => g !== id));
+}
+
 function handleEvent(ev) {
   const src = ev.source || {};
   if (ev.type === 'join' && src.groupId) {
-    props().setProperty('GROUP_ID', src.groupId);
+    addGroup(src.groupId);
     reply(ev.replyToken, '大家好！我是值班小幫手 🙋\n每週五晚上會發下週的班表。\n' + helpText());
+    return;
+  }
+  if (ev.type === 'leave' && src.groupId) {   // 機器人被踢出群組，從清單移除
+    removeGroup(src.groupId);
     return;
   }
   if (ev.type !== 'message' || ev.message.type !== 'text') return;
 
   const text = ev.message.text.trim();
   if (text === '綁定群組' && src.groupId) {
-    props().setProperty('GROUP_ID', src.groupId);
-    reply(ev.replyToken, '✅ 之後每週的班表提醒會發到這個群組');
+    addGroup(src.groupId);
+    reply(ev.replyToken, '✅ 之後每週的班表提醒會發到這個群組（其他已綁定的群組不受影響）');
+    return;
+  }
+  if (text === '取消綁定' && src.groupId) {
+    removeGroup(src.groupId);
+    reply(ev.replyToken, '✅ 這個群組不會再收到每週提醒（打「本週」「下週」等關鍵字還是可以查）');
     return;
   }
   const answer = answerFor(text);
@@ -78,12 +110,15 @@ function helpText() {
 /* ---------- 每週推播 ---------- */
 // 由時間觸發器在週五晚上執行，發下週一到五的班表
 function weeklyPush() {
-  const groupId = prop('GROUP_ID');
-  if (!groupId) { console.warn('還沒有綁定群組'); return; }
+  const groups = getGroups();
+  if (!groups.length) { console.warn('還沒有綁定群組'); return; }
   const days = weekDays(nextMonday(todayISO()));
   const data = loadData(days[0], days[4]);
   if (!days.some(d => hasAnything(data, d))) return;   // 整週放假就不發，省額度
-  push(groupId, '📢 下週值班提醒\n\n' + formatDays(data, days) + '\n\n完整班表：' + (prop('WEB_URL') || DEFAULT_WEB_URL));
+  const text = '📢 下週值班提醒\n\n' + formatDays(data, days) + '\n\n完整班表：' + (prop('WEB_URL') || DEFAULT_WEB_URL);
+  groups.forEach(g => {
+    try { push(g, text); } catch (err) { console.error('推播到群組失敗 ' + g, err); }   // 一個群組失敗不影響其他群組
+  });
 }
 
 // 執行一次即可：建立「每週五晚上 8 點」的觸發器（會先刪掉舊的，不會重複）
